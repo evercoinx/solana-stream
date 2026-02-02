@@ -24,6 +24,7 @@ const PUMPFUN_SELL_DISC: [u8; 8] = [0x33, 0xe6, 0x85, 0xa4, 0x01, 0x7f, 0x83, 0x
 pub struct ProgramWatchConfig {
     pub program_ids: Vec<Pubkey>,
     pub authorities: Vec<Pubkey>,
+    pub fee_payers: Vec<Pubkey>,
     pub token_program_ids: Vec<Pubkey>,
     pub skip_vote_txs: bool,
     pub mint_finder: Arc<dyn MintFinder + Send + Sync>,
@@ -36,6 +37,7 @@ impl ProgramWatchConfig {
         Self {
             program_ids: program_ids.clone(),
             authorities,
+            fee_payers: Vec::new(),
             token_program_ids: default_token_program_ids(),
             skip_vote_txs: true,
             mint_finder: mf.clone(),
@@ -45,6 +47,11 @@ impl ProgramWatchConfig {
 
     pub fn with_token_program_ids(mut self, token_program_ids: Vec<Pubkey>) -> Self {
         self.token_program_ids = token_program_ids;
+        self
+    }
+
+    pub fn with_fee_payers(mut self, fee_payers: Vec<Pubkey>) -> Self {
+        self.fee_payers = fee_payers;
         self
     }
 
@@ -128,7 +135,7 @@ pub fn default_token_program_ids() -> Vec<Pubkey> {
         None,
         &[
             TOKEN_PROGRAM_ID,
-            TOKEN_2022_PROGRAM_ID, //
+            TOKEN_2022_PROGRAM_ID,
         ],
     )
 }
@@ -150,6 +157,17 @@ pub fn detect_program_hit(
         return None;
     }
     let keys = tx.message.static_account_keys();
+    
+    if !cfg.fee_payers.is_empty() {
+        let fee_payer = keys.get(0);
+        let fee_payer_matches = fee_payer
+            .map(|fp| cfg.fee_payers.iter().any(|allowed| allowed == fp))
+            .unwrap_or(false);
+        if !fee_payer_matches {
+            return None;
+        }
+    }
+    
     let authority_hit = !cfg.authorities.is_empty()
         && keys
             .iter()
