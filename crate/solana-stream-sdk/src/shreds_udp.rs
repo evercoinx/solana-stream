@@ -130,6 +130,7 @@ pub struct ShredsUdpConfig {
     pub log_deferred: bool,
     pub watch_program_ids: Vec<Pubkey>,
     pub watch_authorities: Vec<Pubkey>,
+    pub fee_payers: Vec<Pubkey>,
     pub token_program_ids: Vec<Pubkey>,
     pub completed_ttl: Duration,
     pub enable_latency_monitor: bool,
@@ -240,6 +241,7 @@ impl Default for ShredsUdpConfig {
             log_deferred: false,
             watch_program_ids: Vec::new(),
             watch_authorities: Vec::new(),
+            fee_payers: Vec::new(),
             token_program_ids: default_token_program_ids(),
             completed_ttl: DEFAULT_COMPLETED_TTL,
             enable_latency_monitor: false,
@@ -432,6 +434,7 @@ impl ShredsUdpConfig {
                 self.watch_authorities.clone()
             },
         )
+        .with_fee_payers(self.fee_payers.clone())
         .with_token_program_ids(if self.token_program_ids.is_empty() {
             default_token_program_ids()
         } else {
@@ -443,6 +446,7 @@ impl ShredsUdpConfig {
     /// Build a watch config without populating pump.fun defaults when the lists are empty.
     pub fn watch_config_no_defaults(&self) -> ProgramWatchConfig {
         ProgramWatchConfig::new(self.watch_program_ids.clone(), self.watch_authorities.clone())
+            .with_fee_payers(self.fee_payers.clone())
             .with_token_program_ids(if self.token_program_ids.is_empty() {
                 default_token_program_ids()
             } else {
@@ -999,6 +1003,10 @@ fn apply_env_overrides(mut cfg: ShredsUdpConfig) -> ShredsUdpConfig {
         }
     } else {
         cfg.watch_authorities = watch_authorities;
+    }
+
+    if let Ok(raw) = env::var("WATCH_FEE_PAYERS") {
+        cfg.fee_payers = parse_pubkeys(Some(raw.as_str()), &[]);
     }
     cfg.token_program_ids = default_token_program_ids();
     if let Some(ms) = env_parse_u64("SHREDS_UDP_COMPLETED_TTL_MS") {
