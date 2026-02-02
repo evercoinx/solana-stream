@@ -67,6 +67,7 @@ impl ProgramWatchConfig {
 #[derive(Debug, Clone)]
 pub struct ProgramHit {
     pub signature: Signature,
+    pub fee_payer: Option<Pubkey>,
     pub program_hit: bool,
     pub authority_hit: bool,
     pub mints: Vec<MintInfo>,
@@ -174,6 +175,7 @@ pub fn detect_program_hit(
 
     Some(ProgramHit {
         signature: tx.signatures.get(0).cloned().unwrap_or_default(),
+        fee_payer: keys.get(0).cloned(),
         program_hit,
         authority_hit,
         mints: mint_accounts,

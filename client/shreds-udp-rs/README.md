@@ -23,7 +23,7 @@ GENERIC_WATCH_PROGRAM_IDS=YourProgramIdHere cargo run -p shreds-udp-rs --bin gen
 
 ## Log legend
 - Prefix: `🎯` program hit, `🐣` authority hit (`🎯🐣` means both)
-- Action: `🐣` create (`create/buy` when amounts are present), `🟢` buy, `🔻` sell, `🪙` other, `❓` missing/unknown
+- Action: `🐣` create (`create/buy` when amounts are present), `🟢` buy, `🔴` sell, `🪙` other, `❓` missing/unknown
 - Pump.fun SOL values are instruction limits (max for buy/create, min for sell); actual fills require event/meta data (e.g., Geyser/RPC).
 - Votes are skipped by default (`skip_vote_txs=true`)
 - Set `SHREDS_UDP_LOG_*` to enable raw/shreds/entries/deshred debug logs; defaults are quiet except `log_watch_hits`

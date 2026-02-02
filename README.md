@@ -245,7 +245,7 @@ cargo run -p shreds-udp-rs                                       # settings alre
 Log legend:
 
 - Prefix: `🎯` program hit, `🐣` authority hit (`🎯🐣` means both)
-- Action: `🐣` create, `🟢` buy, `🔻` sell, `🪙` other, `❓` unknown/missing amounts
+- Action: `🐣` create, `🟢` buy, `🔴` sell, `🪙` other, `❓` unknown/missing amounts
 - Votes skipped by default (`skip_vote_txs=true`)
 - `pump_min_lamports` can suppress small pump.fun buy/sell logs
 - Pump.fun SOL values are instruction limits (max for buy/create, min for sell); actual fills require event/meta data (e.g., Geyser/RPC).
