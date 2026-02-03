@@ -542,6 +542,7 @@ impl ShredsUdpState {
             done.retain(|_, until| until.elapsed() < completed_ttl);
             before - done.len()
         };
+        tokio::task::yield_now().await;
 
         let suppressed_removed = {
             let mut sup = self.suppressed.lock().await;
@@ -549,6 +550,7 @@ impl ShredsUdpState {
             sup.retain(|_, until| until.elapsed() < suppressed_ttl);
             before - sup.len()
         };
+        tokio::task::yield_now().await;
 
         let warnings_removed = {
             let mut warnings = self.warnings.lock().await;
@@ -556,6 +558,7 @@ impl ShredsUdpState {
             warnings.retain(|_, ts| ts.elapsed() < completed_ttl);
             before - warnings.len()
         };
+        tokio::task::yield_now().await;
 
         let shred_buffer_removed = {
             let mut buf = self.shred_buffer.lock().await;
@@ -576,6 +579,7 @@ impl ShredsUdpState {
             }
             before - buf.len()
         };
+        tokio::task::yield_now().await;
 
         let slots_removed = if let Some(txs) = &self.transactions_by_slot {
             let before = txs.len();
@@ -597,6 +601,7 @@ impl ShredsUdpState {
         } else {
             0
         };
+        tokio::task::yield_now().await;
 
         let block_time_cleaned = if let Some(cache) = &self.block_time_cache {
             cache.cleanup(slot_window_root).await;
