@@ -1,6 +1,6 @@
 use std::str::FromStr;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     sync::Arc,
 };
 
@@ -24,7 +24,7 @@ const PUMPFUN_SELL_DISC: [u8; 8] = [0x33, 0xe6, 0x85, 0xa4, 0x01, 0x7f, 0x83, 0x
 pub struct ProgramWatchConfig {
     pub program_ids: Vec<Pubkey>,
     pub authorities: Vec<Pubkey>,
-    pub fee_payers: Vec<Pubkey>,
+    pub fee_payers: HashSet<Pubkey>,
     pub token_program_ids: Vec<Pubkey>,
     pub skip_vote_txs: bool,
     pub mint_finder: Arc<dyn MintFinder + Send + Sync>,
@@ -37,7 +37,7 @@ impl ProgramWatchConfig {
         Self {
             program_ids: program_ids.clone(),
             authorities,
-            fee_payers: Vec::new(),
+            fee_payers: HashSet::new(),
             token_program_ids: default_token_program_ids(),
             skip_vote_txs: true,
             mint_finder: mf.clone(),
@@ -51,7 +51,7 @@ impl ProgramWatchConfig {
     }
 
     pub fn with_fee_payers(mut self, fee_payers: Vec<Pubkey>) -> Self {
-        self.fee_payers = fee_payers;
+        self.fee_payers = fee_payers.into_iter().collect();
         self
     }
 
@@ -161,7 +161,7 @@ pub fn detect_program_hit(
     if !cfg.fee_payers.is_empty() {
         let fee_payer = keys.get(0);
         let fee_payer_matches = fee_payer
-            .map(|fp| cfg.fee_payers.iter().any(|allowed| allowed == fp))
+            .map(|fp| cfg.fee_payers.contains(fp))
             .unwrap_or(false);
         if !fee_payer_matches {
             return None;
