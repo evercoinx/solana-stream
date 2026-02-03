@@ -825,10 +825,11 @@ impl BlockTimeCache {
 
         {
             let mut fetching = self.fetching.lock().await;
-            fetching.retain(|_, started_at| started_at.elapsed() < FETCH_TIMEOUT);
             
-            if fetching.contains_key(&slot) {
-                return None;
+            if let Some(timestamp) = fetching.get(&slot) {
+                if timestamp.elapsed() < FETCH_TIMEOUT {
+                    return None;
+                }
             }
             fetching.insert(slot, Instant::now());
         }
@@ -1346,17 +1347,19 @@ pub async fn insert_shred(
     let metrics = state.metrics();
 
     {
-        let mut done = state.completed.lock().await;
-        done.retain(|_, until| until.elapsed() < state.completed_ttl());
-        if done.contains_key(&key) {
-            return ShredInsertOutcome::Skipped;
+        let done = state.completed.lock().await;
+        if let Some(timestamp) = done.get(&key) {
+            if timestamp.elapsed() < state.completed_ttl() {
+                return ShredInsertOutcome::Skipped;
+            }
         }
     }
     {
-        let mut sup = state.suppressed.lock().await;
-        sup.retain(|_, until| until.elapsed() < state.suppressed_ttl());
-        if sup.contains_key(&key) {
-            return ShredInsertOutcome::Skipped;
+        let sup = state.suppressed.lock().await;
+        if let Some(timestamp) = sup.get(&key) {
+            if timestamp.elapsed() < state.suppressed_ttl() {
+                return ShredInsertOutcome::Skipped;
+            }
         }
     }
 
@@ -1839,13 +1842,16 @@ async fn warn_once(state: &ShredsUdpState, key: FecKey, msg: &str, warn_once: bo
         return;
     }
     let mut warnings = state.warnings.lock().await;
-    warnings.retain(|_, ts| ts.elapsed() < state.completed_ttl());
-    if warnings.insert(key, Instant::now()).is_none() {
-        warn!(
-            "slot={} ver={} fec_set={} {}",
-            key.slot, key.version, key.fec_set, msg
-        );
+    if let Some(timestamp) = warnings.get(&key) {
+        if timestamp.elapsed() < state.completed_ttl() {
+            return;
+        }
     }
+    warnings.insert(key, Instant::now());
+    warn!(
+        "slot={} ver={} fec_set={} {}",
+        key.slot, key.version, key.fec_set, msg
+    );
 }
 
 fn decode_coding_header(shred: &Shred) -> Option<CodingHeaderInfo> {
