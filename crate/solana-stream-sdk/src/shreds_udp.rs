@@ -8,7 +8,7 @@ use crate::{
 use chrono::{DateTime, LocalResult, TimeZone, Utc};
 use dashmap::DashMap;
 use futures::future::join_all;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::Deserialize;
 use solana_ledger::shred::{
     Shred, Shredder, MAX_CODE_SHREDS_PER_SLOT, MAX_DATA_SHREDS_PER_SLOT, SIZE_OF_NONCE,
@@ -530,6 +530,83 @@ impl ShredsUdpState {
     pub async fn mark_suppressed(&self, key: FecKey) {
         self.suppressed.lock().await.insert(key, Instant::now());
     }
+
+    /// Performs periodic cleanup of expired entries across all internal caches.
+    pub async fn periodic_cleanup(&self, slot_window_root: Option<u64>) -> (usize, usize, usize, usize, usize, bool) {
+        let completed_ttl = self.completed_ttl();
+        let suppressed_ttl = self.suppressed_ttl();
+
+        let completed_removed = {
+            let mut done = self.completed.lock().await;
+            let before = done.len();
+            done.retain(|_, until| until.elapsed() < completed_ttl);
+            before - done.len()
+        };
+
+        let suppressed_removed = {
+            let mut sup = self.suppressed.lock().await;
+            let before = sup.len();
+            sup.retain(|_, until| until.elapsed() < suppressed_ttl);
+            before - sup.len()
+        };
+
+        let warnings_removed = {
+            let mut warnings = self.warnings.lock().await;
+            let before = warnings.len();
+            warnings.retain(|_, ts| ts.elapsed() < completed_ttl);
+            before - warnings.len()
+        };
+
+        let shred_buffer_removed = {
+            let mut buf = self.shred_buffer.lock().await;
+            let before = buf.len();
+            
+            if let Some(root) = slot_window_root {
+                buf.retain(|key, _| key.slot >= root);
+            } else {
+                const MAX_SHRED_BATCHES: usize = 2000;
+                if buf.len() > MAX_SHRED_BATCHES {
+                    let mut keys: Vec<FecKey> = buf.keys().copied().collect();
+                    keys.sort_by_key(|k| k.slot);
+                    let to_remove = buf.len() - (MAX_SHRED_BATCHES * 80 / 100); // Keep 80%
+                    for key in keys.iter().take(to_remove) {
+                        buf.remove(key);
+                    }
+                }
+            }
+            before - buf.len()
+        };
+
+        let slots_removed = if let Some(txs) = &self.transactions_by_slot {
+            let before = txs.len();
+            
+            if let Some(root) = slot_window_root {
+                txs.retain(|slot, _| *slot >= root);
+            } else {
+                const MAX_SLOT_ENTRIES: usize = 2000;
+                if txs.len() > MAX_SLOT_ENTRIES {
+                    let mut slots: Vec<u64> = txs.iter().map(|entry| *entry.key()).collect();
+                    slots.sort();
+                    let to_remove = txs.len() - (MAX_SLOT_ENTRIES * 80 / 100);  // Keep 80%
+                    for slot in slots.iter().take(to_remove) {
+                        txs.remove(slot);
+                    }
+                }
+            }
+            before - txs.len()
+        } else {
+            0
+        };
+
+        let block_time_cleaned = if let Some(cache) = &self.block_time_cache {
+            cache.cleanup(slot_window_root).await;
+            true
+        } else {
+            false
+        };
+
+        (shred_buffer_removed, completed_removed, suppressed_removed, warnings_removed, slots_removed, block_time_cleaned)
+    }
 }
 
 pub async fn run_shreds_udp(
@@ -722,20 +799,23 @@ pub struct WatchEvent {
 #[derive(Clone)]
 pub struct BlockTimeCache {
     rpc_client: Arc<RpcClient>,
-    cache: Arc<Mutex<HashMap<u64, i64>>>,
-    fetching: Arc<Mutex<HashSet<u64>>>,
+    cache: Arc<Mutex<BTreeMap<u64, i64>>>,
+    fetching: Arc<Mutex<HashMap<u64, Instant>>>,
 }
 
 impl BlockTimeCache {
     pub fn new(rpc_endpoint: &str) -> Self {
         Self {
             rpc_client: Arc::new(RpcClient::new(rpc_endpoint.to_string())),
-            cache: Arc::new(Mutex::new(HashMap::new())),
-            fetching: Arc::new(Mutex::new(HashSet::new())),
+            cache: Arc::new(Mutex::new(BTreeMap::new())),
+            fetching: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     async fn get_block_time(&self, slot: u64) -> Option<i64> {
+        const MAX_CACHE_SIZE: usize = 100;
+        const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+
         {
             let cache = self.cache.lock().await;
             if let Some(time) = cache.get(&slot) {
@@ -745,10 +825,12 @@ impl BlockTimeCache {
 
         {
             let mut fetching = self.fetching.lock().await;
-            if fetching.contains(&slot) {
+            fetching.retain(|_, started_at| started_at.elapsed() < FETCH_TIMEOUT);
+            
+            if fetching.contains_key(&slot) {
                 return None;
             }
-            fetching.insert(slot);
+            fetching.insert(slot, Instant::now());
         }
 
         let block_time_result = self.rpc_client.get_block_time(slot).await;
@@ -769,9 +851,12 @@ impl BlockTimeCache {
             let mut cache = self.cache.lock().await;
             if let Some(time) = block_time {
                 cache.insert(slot, time);
-                if cache.len() > 20 {
-                    if let Some(oldest_slot) = cache.keys().next().cloned() {
+                
+                while cache.len() > MAX_CACHE_SIZE {
+                    if let Some((&oldest_slot, _)) = cache.iter().next() {
                         cache.remove(&oldest_slot);
+                    } else {
+                        break;
                     }
                 }
             }
@@ -781,6 +866,19 @@ impl BlockTimeCache {
         fetching.remove(&slot);
 
         block_time
+    }
+
+    /// Cleanup old cache entries and stale fetch attempts.
+    pub async fn cleanup(&self, slot_window_root: Option<u64>) {
+        const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+        if let Some(root) = slot_window_root {
+            let mut cache = self.cache.lock().await;
+            cache.retain(|slot, _| *slot >= root);
+        }
+
+        let mut fetching = self.fetching.lock().await;
+        fetching.retain(|_, started_at| started_at.elapsed() < FETCH_TIMEOUT);
     }
 }
 
@@ -1041,6 +1139,27 @@ fn prepare_log_message(
         .entry(slot)
         .or_insert_with(Vec::new)
         .push(("dummy_signature".to_string(), received_time));
+}
+
+/// Periodic cleanup task to prevent memory leaks from unbounded caches.
+pub async fn periodic_cleanup_task(
+    state: ShredsUdpState,
+    slot_window_root: Option<u64>,
+    cleanup_interval: Duration,
+) {
+    loop {
+        tokio::time::sleep(cleanup_interval).await;
+        
+        let (shred_buf, completed, suppressed, warnings, slots, block_time) = 
+            state.periodic_cleanup(slot_window_root).await;
+        
+        if shred_buf > 0 || completed > 0 || suppressed > 0 || warnings > 0 || slots > 0 {
+            debug!(
+                "periodic_cleanup: shred_buffer={} completed={} suppressed={} warnings={} slots={} block_time_cache={}",
+                shred_buf, completed, suppressed, warnings, slots, block_time
+            );
+        }
+    }
 }
 
 pub async fn latency_monitor_task(
@@ -1585,7 +1704,7 @@ async fn prefilter_shred(
         let extra = decoded.received_len - decoded.canonical_payload_len();
         let n = metrics.inc_payload_trailing();
         if n % 100 == 0 {
-            info!(
+            debug!(
                 "shred received with trailing bytes slot={} ver={} fec_set={} recv_len={} canonical={} extra={} from={}",
                 key.slot,
                 key.version,
