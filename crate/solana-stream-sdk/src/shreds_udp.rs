@@ -107,7 +107,8 @@ impl UdpShredReceiver {
 pub fn deshred_shreds_to_entries(
     shreds: &[solana_ledger::shred::Shred],
 ) -> Result<Vec<solana_entry::entry::Entry>> {
-    let payloads: Vec<&[u8]> = shreds.iter().map(|s| s.payload().as_ref()).collect();
+    let mut payloads = Vec::with_capacity(shreds.len());
+    payloads.extend(shreds.iter().map(|s| s.payload().as_ref()));
     let data = Shredder::deshred(payloads)
         .map_err(|e| SolanaStreamError::Serialization(format!("deshred failed: {e}")))?;
 
@@ -2368,8 +2369,9 @@ impl ShredBatch {
         }
 
         self.last_attempted_count = data_len;
-        let mut shreds: Vec<Shred> = self.data_shreds.values().cloned().collect();
-        shreds.sort_by_key(|s| s.index());
+        let mut shreds = Vec::with_capacity(self.data_shreds.len());
+        shreds.extend(self.data_shreds.values().cloned());
+        shreds.sort_unstable_by_key(|s| s.index());
         ReadyToDeshred::Ready(shreds)
     }
 
