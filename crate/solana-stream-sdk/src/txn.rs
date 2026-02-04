@@ -186,10 +186,11 @@ pub fn detect_program_hit(
         }
     }
 
-    let mint_accounts: Vec<MintInfo> = cfg.mint_finder.find_mints(tx, cfg);
     if !program_hit && !authority_hit {
         return None;
     }
+    
+    let mint_accounts: Vec<MintInfo> = cfg.mint_finder.find_mints(tx, cfg);
 
     Some(ProgramHit {
         signature: tx.signatures.get(0).cloned().unwrap_or_default(),
@@ -205,8 +206,9 @@ pub fn extract_mint_accounts(
     token_program_ids: &[Pubkey],
 ) -> Vec<Pubkey> {
     let mut mints = BTreeSet::new();
+    let ixs = message.instructions();
     let keys = message.static_account_keys();
-    for ix in message.instructions() {
+    for ix in ixs {
         let Some(program_id) = keys.get(ix.program_id_index as usize) else {
             continue;
         };
