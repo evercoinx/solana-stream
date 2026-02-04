@@ -532,8 +532,8 @@ impl ShredsUdpState {
         self.suppressed.lock().await.insert(key, Instant::now());
     }
 
-    /// Performs periodic cleanup of expired entries across all internal caches.
-    pub async fn periodic_cleanup(&self, slot_window_root: Option<u64>) -> (usize, usize, usize, usize, usize, bool) {
+    /// Performs cleanup of expired entries across all internal caches.
+    pub async fn cleanup(&self, slot_window_root: Option<u64>) -> (usize, usize, usize, usize, usize, bool) {
         let completed_ttl = self.completed_ttl();
         let suppressed_ttl = self.suppressed_ttl();
 
@@ -1148,8 +1148,8 @@ fn prepare_log_message(
         .push(("dummy_signature".to_string(), received_time));
 }
 
-/// Periodic cleanup task to prevent memory leaks from unbounded caches.
-pub async fn periodic_cleanup_task(
+/// Cleanup task to manage memory from unbounded caches.
+pub async fn cleanup_task(
     state: ShredsUdpState,
     slot_window_root: Option<u64>,
     cleanup_interval: Duration,
@@ -1158,11 +1158,11 @@ pub async fn periodic_cleanup_task(
         tokio::time::sleep(cleanup_interval).await;
         
         let (shred_buf, completed, suppressed, warnings, slots, block_time) = 
-            state.periodic_cleanup(slot_window_root).await;
+            state.cleanup(slot_window_root).await;
         
         if shred_buf > 0 || completed > 0 || suppressed > 0 || warnings > 0 || slots > 0 {
             debug!(
-                "periodic_cleanup: shred_buffer={} completed={} suppressed={} warnings={} slots={} block_time_cache={}",
+                "cleanup: shred_buffer={} completed={} suppressed={} warnings={} slots={} block_time_cache={}",
                 shred_buf, completed, suppressed, warnings, slots, block_time
             );
         }
