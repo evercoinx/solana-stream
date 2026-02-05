@@ -17,7 +17,7 @@ use solana_packet::PACKET_DATA_SIZE;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{pubkey::Pubkey, transaction::VersionedTransaction};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     env, fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -73,7 +73,29 @@ impl UdpShredReceiver {
         bind_addr: impl AsRef<str>,
         max_datagram_size: Option<usize>,
     ) -> Result<Self> {
-        let socket = UdpSocket::bind(bind_addr.as_ref()).await?;
+        let addr: std::net::SocketAddr = bind_addr.as_ref().parse()
+            .map_err(|e| SolanaStreamError::Configuration(format!("Invalid bind address: {e}")))?;
+        
+        let sock = socket2::Socket::new(
+            socket2::Domain::for_address(addr),
+            socket2::Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        )?;
+        
+        let target_size = 8 * 1024 * 1024;
+        if let Err(e) = sock.set_recv_buffer_size(target_size) {
+            warn!("Failed to set SO_RCVBUF to {} bytes: {}", target_size, e);
+        }
+        
+        if let Ok(actual_size) = sock.recv_buffer_size() {
+            info!("UDP socket receive buffer size: {} bytes (requested: {})", actual_size, target_size);
+        }
+        
+        sock.set_nonblocking(true)?;
+        sock.bind(&addr.into())?;
+        let std_socket: std::net::UdpSocket = sock.into();
+        let socket = UdpSocket::from_std(std_socket)?;
+        
         let size = max_datagram_size
             .unwrap_or(DEFAULT_MAX_DATAGRAM_SIZE)
             .max(2048);
@@ -149,12 +171,12 @@ pub struct ShredsUdpConfig {
 pub struct ShredsUdpState {
     transactions_by_slot: Option<Arc<DashMap<u64, Vec<(String, DateTime<Utc>)>>>>,
     shred_buffer: Arc<Mutex<HashMap<FecKey, ShredBatch>>>,
-    completed: Arc<Mutex<HashMap<FecKey, Instant>>>,
-    suppressed: Arc<Mutex<HashMap<FecKey, Instant>>>,
+    completed: Arc<DashMap<FecKey, Instant>>,
+    suppressed: Arc<DashMap<FecKey, Instant>>,
     block_time_cache: Option<BlockTimeCache>,
     completed_ttl: Duration,
     suppressed_ttl: Duration,
-    warnings: Arc<Mutex<HashMap<FecKey, Instant>>>,
+    warnings: Arc<DashMap<FecKey, Instant>>,
     metrics: Arc<ShredMetrics>,
 }
 
@@ -486,14 +508,14 @@ impl ShredsUdpState {
                 .enable_latency_monitor
                 .then(|| Arc::new(DashMap::new())),
             shred_buffer: Arc::new(Mutex::new(HashMap::new())),
-            completed: Arc::new(Mutex::new(HashMap::new())),
-            suppressed: Arc::new(Mutex::new(HashMap::new())),
+            completed: Arc::new(DashMap::new()),
+            suppressed: Arc::new(DashMap::new()),
             block_time_cache: cfg
                 .enable_latency_monitor
                 .then(|| BlockTimeCache::new(&cfg.rpc_endpoint)),
             completed_ttl: cfg.completed_ttl,
             suppressed_ttl: cfg.evict_cooldown,
-            warnings: Arc::new(Mutex::new(HashMap::new())),
+            warnings: Arc::new(DashMap::new()),
             metrics: Arc::new(ShredMetrics::default()),
         }
     }
@@ -525,11 +547,11 @@ impl ShredsUdpState {
     }
 
     pub async fn mark_completed(&self, key: FecKey) {
-        self.completed.lock().await.insert(key, Instant::now());
+        self.completed.insert(key, Instant::now());
     }
 
     pub async fn mark_suppressed(&self, key: FecKey) {
-        self.suppressed.lock().await.insert(key, Instant::now());
+        self.suppressed.insert(key, Instant::now());
     }
 
     /// Performs cleanup of expired entries across all internal caches.
@@ -538,26 +560,23 @@ impl ShredsUdpState {
         let suppressed_ttl = self.suppressed_ttl();
 
         let completed_removed = {
-            let mut done = self.completed.lock().await;
-            let before = done.len();
-            done.retain(|_, until| until.elapsed() < completed_ttl);
-            before - done.len()
+            let before = self.completed.len();
+            self.completed.retain(|_, until| until.elapsed() < completed_ttl);
+            before - self.completed.len()
         };
         tokio::task::yield_now().await;
 
         let suppressed_removed = {
-            let mut sup = self.suppressed.lock().await;
-            let before = sup.len();
-            sup.retain(|_, until| until.elapsed() < suppressed_ttl);
-            before - sup.len()
+            let before = self.suppressed.len();
+            self.suppressed.retain(|_, until| until.elapsed() < suppressed_ttl);
+            before - self.suppressed.len()
         };
         tokio::task::yield_now().await;
 
         let warnings_removed = {
-            let mut warnings = self.warnings.lock().await;
-            let before = warnings.len();
-            warnings.retain(|_, ts| ts.elapsed() < completed_ttl);
-            before - warnings.len()
+            let before = self.warnings.len();
+            self.warnings.retain(|_, ts| ts.elapsed() < completed_ttl);
+            before - self.warnings.len()
         };
         tokio::task::yield_now().await;
 
@@ -1174,7 +1193,7 @@ pub async fn latency_monitor_task(
     transactions_by_slot: Arc<DashMap<u64, Vec<(String, DateTime<Utc>)>>>,
 ) {
     const MAX_LATENCIES: usize = 420;
-    let mut latency_buffer = Vec::new();
+    let mut latency_buffer = VecDeque::new();
 
     loop {
         tokio::time::sleep(Duration::from_millis(420)).await;
@@ -1219,9 +1238,9 @@ pub async fn latency_monitor_task(
                         .num_milliseconds()
                         .saturating_sub(500)
                         .max(0);
-                    latency_buffer.push(latency);
+                    latency_buffer.push_back(latency);
                     if latency_buffer.len() > MAX_LATENCIES {
-                        latency_buffer.remove(0);
+                        latency_buffer.pop_front();
                     }
 
                     let avg_latency =
@@ -1352,20 +1371,14 @@ pub async fn insert_shred(
     };
     let metrics = state.metrics();
 
-    {
-        let done = state.completed.lock().await;
-        if let Some(timestamp) = done.get(&key) {
-            if timestamp.elapsed() < state.completed_ttl() {
-                return ShredInsertOutcome::Skipped;
-            }
+    if let Some(timestamp) = state.completed.get(&key) {
+        if timestamp.elapsed() < state.completed_ttl() {
+            return ShredInsertOutcome::Skipped;
         }
     }
-    {
-        let sup = state.suppressed.lock().await;
-        if let Some(timestamp) = sup.get(&key) {
-            if timestamp.elapsed() < state.suppressed_ttl() {
-                return ShredInsertOutcome::Skipped;
-            }
+    if let Some(timestamp) = state.suppressed.get(&key) {
+        if timestamp.elapsed() < state.suppressed_ttl() {
+            return ShredInsertOutcome::Skipped;
         }
     }
 
@@ -1393,11 +1406,12 @@ async fn process_data_shred(
     }
     let last = decoded.shred.last_in_slot();
     let complete = decoded.shred.data_complete();
+    let index = decoded.shred.index();
     if cfg.log_shreds {
         info!(
             "shred DATA slot={} idx={} ver={} fec_set={} last={} complete={} from={} bytes={} canonical={}",
             key.slot,
-            decoded.shred.index(),
+            index,
             key.version,
             key.fec_set,
             last,
@@ -1407,25 +1421,28 @@ async fn process_data_shred(
             decoded.canonical_payload_len(),
         );
     }
-    let ready = {
+    let (ready, status) = {
         let mut buf = state.shred_buffer.lock().await;
         let entry = buf.entry(key).or_insert_with(ShredBatch::new);
 
         if last || complete {
-            let required = (decoded.shred.index().saturating_sub(key.fec_set) as usize) + 1;
+            let required = (index.saturating_sub(key.fec_set) as usize) + 1;
             entry.update_required_data_from_data(required);
         }
 
-        entry.insert_data_shred(decoded.shred.clone(), metrics.as_ref());
-        entry.ready_to_deshred(policy)
+        entry.insert_data_shred(decoded.shred, metrics.as_ref());
+        let ready = entry.ready_to_deshred(policy);
+        let status = match &ready {
+            ReadyToDeshred::Ready(_) | ReadyToDeshred::Gated(_) => {
+                Some(entry.status(key.fec_set))
+            }
+            ReadyToDeshred::NotReady => None,
+        };
+        (ready, status)
     };
 
     match ready {
         ReadyToDeshred::Ready(shreds) => {
-            let status = {
-                let buf = state.shred_buffer.lock().await;
-                buf.get(&key).map(|b| b.status(key.fec_set))
-            };
             ShredInsertOutcome::Ready(ShredReadyBatch {
                 key,
                 shreds,
@@ -1434,10 +1451,6 @@ async fn process_data_shred(
             })
         }
         ReadyToDeshred::Gated(reason) => {
-            let status = {
-                let buf = state.shred_buffer.lock().await;
-                buf.get(&key).map(|b| b.status(key.fec_set))
-            };
             ShredInsertOutcome::Deferred {
                 key,
                 source: ShredSource::Data,
@@ -1461,7 +1474,11 @@ async fn process_code_shred(
     key: FecKey,
     metrics: Arc<ShredMetrics>,
 ) -> ShredInsertOutcome {
-    let ready = {
+    let index = decoded.shred.index();
+    let received_len = decoded.received_len;
+    let canonical_len = decoded.canonical_payload_len();
+    
+    let (ready, status) = {
         let mut buf = state.shred_buffer.lock().await;
         let entry = buf.entry(key).or_insert_with(ShredBatch::new);
 
@@ -1469,16 +1486,19 @@ async fn process_code_shred(
             entry.update_required_data_from_code(header.num_data_shreds as usize);
         }
 
-        entry.insert_code_shred(decoded.shred.clone(), metrics.as_ref());
-        entry.ready_to_deshred(policy)
+        entry.insert_code_shred(decoded.shred, metrics.as_ref());
+        let ready = entry.ready_to_deshred(policy);
+        let status = match &ready {
+            ReadyToDeshred::Ready(_) | ReadyToDeshred::Gated(_) => {
+                Some(entry.status(key.fec_set))
+            }
+            ReadyToDeshred::NotReady => None,
+        };
+        (ready, status)
     };
 
     let outcome = match ready {
         ReadyToDeshred::Ready(shreds) => {
-            let status = {
-                let buf = state.shred_buffer.lock().await;
-                buf.get(&key).map(|b| b.status(key.fec_set))
-            };
             ShredInsertOutcome::Ready(ShredReadyBatch {
                 key,
                 shreds,
@@ -1487,10 +1507,6 @@ async fn process_code_shred(
             })
         }
         ReadyToDeshred::Gated(reason) => {
-            let status = {
-                let buf = state.shred_buffer.lock().await;
-                buf.get(&key).map(|b| b.status(key.fec_set))
-            };
             ShredInsertOutcome::Deferred {
                 key,
                 source: ShredSource::Coding,
@@ -1508,12 +1524,12 @@ async fn process_code_shred(
         info!(
             "shred CODE slot={} idx={} ver={} fec_set={} from={} bytes={} canonical={}",
             key.slot,
-            decoded.shred.index(),
+            index,
             key.version,
             key.fec_set,
             datagram.from,
-            decoded.received_len,
-            decoded.canonical_payload_len(),
+            received_len,
+            canonical_len,
         );
     }
 
@@ -1847,13 +1863,12 @@ async fn warn_once(state: &ShredsUdpState, key: FecKey, msg: &str, warn_once: bo
         );
         return;
     }
-    let mut warnings = state.warnings.lock().await;
-    if let Some(timestamp) = warnings.get(&key) {
+    if let Some(timestamp) = state.warnings.get(&key) {
         if timestamp.elapsed() < state.completed_ttl() {
             return;
         }
     }
-    warnings.insert(key, Instant::now());
+    state.warnings.insert(key, Instant::now());
     warn!(
         "slot={} ver={} fec_set={} {}",
         key.slot, key.version, key.fec_set, msg

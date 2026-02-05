@@ -7705,6 +7705,7 @@ dependencies = [
  "protobuf-src",
  "serde",
  "serde_jsonc",
+ "socket2 0.6.2",
  "solana-entry",
  "solana-ledger",
  "solana-packet",
