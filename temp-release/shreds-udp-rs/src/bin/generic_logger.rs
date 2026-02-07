@@ -71,7 +71,7 @@ async fn handle_ready_batch(
             }
 
             if !(watch_cfg.program_ids.is_empty() && watch_cfg.authorities.is_empty()) {
-                for event in collect_watch_events(key.slot, &txs, watch_cfg.as_ref(), 0) {
+                for event in collect_watch_events(key.slot, &txs, watch_cfg.as_ref()) {
                     for detail in &event.details {
                         info!(
                             "hit slot={} sig={} mint={} label={:?} action={:?} lamports={:?} token_amount={:?}",

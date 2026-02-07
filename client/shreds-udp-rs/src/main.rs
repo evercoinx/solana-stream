@@ -31,19 +31,18 @@ async fn handle_ready_batch(
                 txs.len()
             );
 
-            // Default logging (honors pump_min_lamports). This is the first sink; swap or extend with
+            // Default logging. This is the first sink; swap or extend with
             // custom logic below if you need additional actions.
             log_watch_events(
                 key.slot,
                 &txs,
                 watch_cfg.as_ref(),
                 cfg.log_watch_hits,
-                cfg.pump_min_lamports,
             );
             // Structured hits for custom hooks; use this to attach your own side-effects.
             let events =
-                collect_watch_events(key.slot, &txs, watch_cfg.as_ref(), cfg.pump_min_lamports);
-            maybe_custom_watch_hook(&events, cfg.pump_min_lamports);
+                collect_watch_events(key.slot, &txs, watch_cfg.as_ref());
+            maybe_custom_watch_hook(&events);
 
             if cfg.log_entries {
                 let sigs: Vec<String> = solana_stream_sdk::txn::first_signatures(
@@ -80,19 +79,12 @@ async fn handle_ready_batch(
 
 /// Optional sample hook to show where custom actions can be triggered after detection.
 /// Enable by setting `SHREDS_UDP_CUSTOM_HOOK=1`. Replace the body with your own sink.
-fn maybe_custom_watch_hook(events: &[WatchEvent], pump_min_lamports: u64) {
+fn maybe_custom_watch_hook(events: &[WatchEvent]) {
     if std::env::var("SHREDS_UDP_CUSTOM_HOOK").is_err() {
         return;
     }
     // This is the second “sink” point: structured hits. Use it to send alerts/txs/etc.
-    // It already respects pump_min_lamports (only logs hits at/above the threshold if amounts exist).
-    for event in events.iter() {
-        for detail in event.details.iter().filter(|d| {
-            pump_min_lamports == 0
-                || d.sol_amount
-                    .map(|l| l >= pump_min_lamports)
-                    .unwrap_or(true)
-        }) {
+        for detail in &event.details {
             info!(
                 "[custom hook] slot={} sig={} mint={} action={:?} sol_amount={:?} token_amount={:?}",
                 event.slot,

@@ -164,7 +164,6 @@ pub struct ShredsUdpConfig {
     pub slot_window_max_future: u64,
     pub evict_cooldown: Duration,
     pub warn_once_per_fec: bool,
-    pub pump_min_lamports: u64,
 }
 
 #[derive(Clone)]
@@ -275,7 +274,6 @@ impl Default for ShredsUdpConfig {
             slot_window_max_future: DEFAULT_MAX_FUTURE_SLOT,
             evict_cooldown: DEFAULT_EVICT_COOLDOWN,
             warn_once_per_fec: true,
-            pump_min_lamports: 0,
         }
     }
 }
@@ -369,9 +367,6 @@ impl ShredsUdpConfig {
         }
         if let Some(v) = file.warn_once_per_fec {
             self.warn_once_per_fec = v;
-        }
-        if let Some(v) = file.pump_min_lamports {
-            self.pump_min_lamports = v;
         }
         self
     }
@@ -480,7 +475,7 @@ impl ShredsUdpConfig {
 
     pub fn describe(&self) -> String {
         format!(
-            "bind_addr={} rpc={} slot_window_root={:?} max_future={} strict_fec={} num_data={} num_coding={} require_code_match={} log_raw={} log_shreds={} log_entries={} log_deshred_attempts={} evict_cooldown_ms={} completed_ttl_ms={} warn_once_per_fec={} pump_min_lamports={}",
+            "bind_addr={} rpc={} slot_window_root={:?} max_future={} strict_fec={} num_data={} num_coding={} require_code_match={} log_raw={} log_shreds={} log_entries={} log_deshred_attempts={} evict_cooldown_ms={} completed_ttl_ms={} warn_once_per_fec={}",
             self.bind_addr,
             self.rpc_endpoint,
             self.slot_window_root,
@@ -496,7 +491,6 @@ impl ShredsUdpConfig {
             self.evict_cooldown.as_millis(),
             self.completed_ttl.as_millis(),
             self.warn_once_per_fec,
-            self.pump_min_lamports,
         )
     }
 }
@@ -995,7 +989,6 @@ struct ShredsUdpConfigFile {
     slot_window_max_future: Option<u64>,
     evict_cooldown_ms: Option<u64>,
     warn_once_per_fec: Option<bool>,
-    pump_min_lamports: Option<u64>,
 }
 
 fn load_config_file(path: &Path) -> Option<ShredsUdpConfigFile> {
@@ -1078,7 +1071,6 @@ fn apply_env_overrides(mut cfg: ShredsUdpConfig) -> ShredsUdpConfig {
         env_parse_u64("SHREDS_UDP_MAX_FUTURE").unwrap_or(cfg.slot_window_max_future);
     let evict_cooldown = env_parse_u64("SHREDS_UDP_EVICT_COOLDOWN_MS").map(Duration::from_millis);
     let warn_once_per_fec = env_bool_opt("SHREDS_UDP_WARN_ONCE");
-    let pump_min_lamports = env_parse_u64("SHREDS_UDP_PUMP_MIN_LAMPORTS");
 
     cfg.rpc_endpoint = env::var("SOLANA_RPC_ENDPOINT").unwrap_or(cfg.rpc_endpoint);
     if let Some(v) = log_raw {
@@ -1148,9 +1140,6 @@ fn apply_env_overrides(mut cfg: ShredsUdpConfig) -> ShredsUdpConfig {
     }
     if let Some(v) = warn_once_per_fec {
         cfg.warn_once_per_fec = v;
-    }
-    if let Some(v) = pump_min_lamports {
-        cfg.pump_min_lamports = v;
     }
 
     cfg
@@ -1566,7 +1555,6 @@ async fn process_ready_batch(
                 &txs,
                 watch_cfg.as_ref(),
                 cfg.log_watch_hits,
-                cfg.pump_min_lamports,
             );
 
             if cfg.log_entries {
@@ -2009,32 +1997,11 @@ fn merge_mint_detail(current: &mut MintDetail, incoming: &MintDetail) {
     }
 }
 
-fn filter_pump_details(details: &mut Vec<MintDetail>, pump_min_lamports: u64) {
-    details.retain(|d| matches!(d.action, Some("buy") | Some("sell") | Some("create")));
-    if pump_min_lamports == 0 {
-        return;
-    }
-    details.retain(|d| match d.action {
-        Some("buy") | Some("sell") => d
-            .sol_amount
-            .map(|amt| amt >= pump_min_lamports)
-            .unwrap_or(false),
-        // If create already carries the initial buy amounts (create/buy), apply the threshold too.
-        Some("create") => d
-            .sol_amount
-            .map(|amt| amt >= pump_min_lamports)
-            .unwrap_or(true),
-        _ => false,
-    });
-}
-
 pub fn collect_watch_events(
     slot: u64,
     txs: &[&VersionedTransaction],
     watch_cfg: &ProgramWatchConfig,
-    pump_min_lamports: u64,
 ) -> Vec<WatchEvent> {
-    let _ = pump_min_lamports;
     let mut events = Vec::new();
     for tx in txs {
         if let Some(hit) = detect_program_hit(tx, watch_cfg) {
@@ -2094,7 +2061,6 @@ pub fn log_watch_events(
     txs: &[&VersionedTransaction],
     watch_cfg: &ProgramWatchConfig,
     log_watch_hits: bool,
-    pump_min_lamports: u64,
 ) {
     if !log_watch_hits {
         return;
@@ -2116,7 +2082,7 @@ pub fn log_watch_events(
         10
     }
 
-    for event in collect_watch_events(slot, txs, watch_cfg, pump_min_lamports) {
+    for event in collect_watch_events(slot, txs, watch_cfg) {
         let prefix = match (event.hit.program_hit, event.hit.authority_hit) {
             (true, true) => "🎯🐣",
             (true, false) => "🎯",
@@ -2124,7 +2090,6 @@ pub fn log_watch_events(
             _ => "👀",
         };
         let mut details = event.details;
-        filter_pump_details(&mut details, pump_min_lamports);
         details.sort_by(|a, b| {
             mint_priority(a)
                 .cmp(&mint_priority(b))
