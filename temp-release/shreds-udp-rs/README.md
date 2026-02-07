@@ -37,7 +37,6 @@ GENERIC_WATCH_PROGRAM_IDS=YourProgramIdHere cargo run --bin generic_logger
 - `slot_window_*` / `*_ttl_ms`: slot window and eviction TTLs
 - `watch_program_ids` / `watch_authorities`: targets to watch (pump.fun defaults)
 - `token_program_ids`: empty = Token + Token-2022
-- `pump_min_lamports`: drop pump.fun buy/sell below this SOL limit threshold (0 = no filter). Applies to create-with-amount too.
 - `mint_finder`: composite of pump.fun (create/create_v2 accounts[0], buy/sell/buy_exact_sol_in accounts[2]) + SPL Token MintTo/Initialize (tags 0/7/14/20, accounts[0])
 - UDP shreds are processed directly; RPC commitment (processed/confirmed/finalized) is not used. Failed txs also appear; unknown amounts may show `❓`.
 
@@ -46,7 +45,7 @@ GENERIC_WATCH_PROGRAM_IDS=YourProgramIdHere cargo run --bin generic_logger
 - Pipeline building blocks (5 layers): 1) `decode_udp_datagram` (receive/prefilter) → 2) `insert_shred` (FEC buffer) → 3) `deshred_shreds_to_entries` (deshred) → 4) `collect_watch_events` (watcher/detailer) → 5) any sink (log/queue/custom processing).
 - State helpers: `ShredsUdpState::{remove_batch, mark_completed, mark_suppressed}` mirror the default cleanup performed by the one-call handler.
 - Quick-start convenience: `handle_pumpfun_watcher` runs the full pump.fun-oriented stack in one call before you dive into customizations.
-- Sample custom hook: set `SHREDS_UDP_CUSTOM_HOOK=1` to enable the placeholder hook in `main.rs`, then replace its body to push hits to your own sink (queue, RPC call, etc.). `collect_watch_events` delivers structured hits; `pump_min_lamports` continues to filter buys/sells.
+- Sample custom hook: set `SHREDS_UDP_CUSTOM_HOOK=1` to enable the placeholder hook in `main.rs`, then replace its body to push hits to your own sink (queue, RPC call, etc.). `collect_watch_events` delivers structured hits.
 
 ## Notes on mint detection
 - Triggers on Token/Token-2022 instructions with tags 0, 7, 14, 20 (assumes mint at accounts[0]).
