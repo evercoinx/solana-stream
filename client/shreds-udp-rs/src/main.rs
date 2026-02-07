@@ -83,6 +83,8 @@ fn maybe_custom_watch_hook(events: &[WatchEvent]) {
     if std::env::var("SHREDS_UDP_CUSTOM_HOOK").is_err() {
         return;
     }
+
+    for event in events {
     // This is the second “sink” point: structured hits. Use it to send alerts/txs/etc.
         for detail in &event.details {
             info!(
