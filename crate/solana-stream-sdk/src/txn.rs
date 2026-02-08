@@ -74,7 +74,7 @@ impl ProgramWatchConfig {
 #[derive(Debug, Clone)]
 pub struct ProgramHit {
     pub signature: Signature,
-    pub fee_payer: Option<Pubkey>,
+    pub fee_payer: Pubkey,
     pub program_hit: bool,
     pub authority_hit: bool,
     pub mints: Vec<MintInfo>,
@@ -194,7 +194,7 @@ pub fn detect_program_hit(
 
     Some(ProgramHit {
         signature: tx.signatures.get(0).cloned().unwrap_or_default(),
-        fee_payer: keys.get(0).cloned(),
+        fee_payer: *keys.get(0).expect("valid transaction must have fee payer at account_keys[0]"),
         program_hit,
         authority_hit,
         mints: mint_accounts,

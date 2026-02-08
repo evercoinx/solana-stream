@@ -2191,9 +2191,7 @@ pub fn log_watch_events(
                 .token_amount
                 .map(|t| t.to_string())
                 .unwrap_or_else(|| "-".to_string());
-            let fee_payer_display = event.hit.fee_payer
-                .map(|fp| fp.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
+            let fee_payer_display = event.hit.fee_payer.to_string();
             info!(
                 "{} {}\n  slot: {}\n  sig: {}\n  fee_payer: {}\n  mint: {}\n  kind: {}\n  lamports: {}\n  sol: {}\n  token_amount: {}",
                 icon,
@@ -2214,9 +2212,7 @@ pub fn log_watch_events(
                 .get(0)
                 .map(|m| m.mint.to_string())
                 .unwrap_or_else(|| "<unknown>".to_string());
-            let fee_payer_display = event.hit.fee_payer
-                .map(|fp| fp.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
+            let fee_payer_display = event.hit.fee_payer.to_string();
             info!(
                 "❓ {}\n  slot: {}\n  sig: {}\n  fee_payer: {}\n  mint: {}\n  kind: unknown\n  lamports: -\n  sol: -\n  token_amount: -",
                 prefix, slot, event.hit.signature, fee_payer_display, mint
