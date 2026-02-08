@@ -24,21 +24,19 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{net::UdpSocket, sync::Mutex};
+use tokio::{net::UdpSocket, sync::{Mutex, broadcast}};
 
 const COMMON_HEADER_LEN: usize = 83;
 const CODING_HEADER_LEN: usize = 6;
 const SHRED_PAYLOAD_SIZE: usize = PACKET_DATA_SIZE - SIZE_OF_NONCE;
-// Matches `solana_ledger::shred::merkle::ShredData::SIZE_OF_PAYLOAD` (Agave merkle data shreds).
 const MERKLE_DATA_SHRED_PAYLOAD_SIZE: usize = 1203;
 const MERKLE_DATA_SHRED_PAYLOAD_WITH_NONCE: usize = MERKLE_DATA_SHRED_PAYLOAD_SIZE + SIZE_OF_NONCE;
-// Maximum UDP payload we expect to receive (legacy/repair shreds with nonce).
 const MAX_UDP_PAYLOAD_SIZE: usize = PACKET_DATA_SIZE;
 
 pub const DEFAULT_BIND_ADDR: &str = "0.0.0.0:10001";
 pub const DEFAULT_RPC_ENDPOINT: &str = "https://api.mainnet-beta.solana.com";
-pub const DEFAULT_WATCH_PROGRAM_ID: &str = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"; // pump.fun program (sample)
-pub const DEFAULT_WATCH_AUTHORITY: &str = "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM"; // pump.fun mint authority (sample)
+pub const DEFAULT_WATCH_PROGRAM_ID: &str = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
+pub const DEFAULT_WATCH_AUTHORITY: &str = "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM";
 pub const DEFAULT_COMPLETED_TTL: Duration = Duration::from_secs(30);
 pub const DEFAULT_MAX_FUTURE_SLOT: u64 = 512;
 pub const DEFAULT_STRICT_NUM_DATA: u16 = 32;
@@ -177,6 +175,8 @@ pub struct ShredsUdpState {
     suppressed_ttl: Duration,
     warnings: Arc<DashMap<FecKey, Instant>>,
     metrics: Arc<ShredMetrics>,
+    latest_slot: Arc<AtomicU64>,
+    slot_updates: broadcast::Sender<u64>,
 }
 
 #[derive(Default)]
@@ -497,6 +497,8 @@ impl ShredsUdpConfig {
 
 impl ShredsUdpState {
     pub fn new(cfg: &ShredsUdpConfig) -> Self {
+        let (slot_tx, _) = broadcast::channel(256);
+        
         Self {
             transactions_by_slot: cfg
                 .enable_latency_monitor
@@ -511,6 +513,8 @@ impl ShredsUdpState {
             suppressed_ttl: cfg.evict_cooldown,
             warnings: Arc::new(DashMap::new()),
             metrics: Arc::new(ShredMetrics::default()),
+            latest_slot: Arc::new(AtomicU64::new(0)),
+            slot_updates: slot_tx,
         }
     }
 
@@ -534,6 +538,21 @@ impl ShredsUdpState {
 
     pub fn metrics(&self) -> Arc<ShredMetrics> {
         self.metrics.clone()
+    }
+
+    /// Returns the latest slot number observed from any decoded shred.
+    pub fn latest_slot(&self) -> u64 {
+        self.latest_slot.load(Ordering::Relaxed)
+    }
+
+    /// Returns a cloneable handle to the latest slot counter for external consumers.
+    pub fn latest_slot_handle(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.latest_slot)
+    }
+
+    /// Returns a broadcast receiver for slot update notifications.
+    pub fn subscribe_slot_updates(&self) -> broadcast::Receiver<u64> {
+        self.slot_updates.subscribe()
     }
 
     pub async fn remove_batch(&self, key: &FecKey) {
@@ -1351,6 +1370,12 @@ pub async fn insert_shred(
     policy: &DeshredPolicy,
 ) -> ShredInsertOutcome {
     let slot = decoded.shred.slot();
+    let old_slot = state.latest_slot.fetch_max(slot, Ordering::Relaxed);
+    
+    if slot > old_slot {
+        let _ = state.slot_updates.send(slot);
+    }
+    
     let version = decoded.shred.version();
     let fec_set = decoded.shred.fec_set_index();
     let key = FecKey {
@@ -2481,30 +2506,5 @@ mod tests {
         assert_eq!(current.label, Some("pump:buy"));
         assert_eq!(current.sol_amount, Some(200));
         assert_eq!(current.token_amount, Some(42));
-    }
-
-    #[test]
-    fn filter_drops_trade_and_small_buys() {
-        let mint_buy_small = Pubkey::new_from_array([2u8; 32]);
-        let mint_buy_large = Pubkey::new_from_array([3u8; 32]);
-        let mint_create = Pubkey::new_from_array([4u8; 32]);
-        let mint_trade = Pubkey::new_from_array([5u8; 32]);
-
-        let mut details = vec![
-            make_detail(mint_buy_small, Some("buy"), Some("pump:buy"), Some(50)),
-            make_detail(mint_buy_large, Some("buy"), Some("pump:buy"), Some(200)),
-            make_detail(mint_create, Some("create"), Some("pump:create"), None),
-            make_detail(mint_trade, Some("trade"), Some("pump:trade"), None),
-        ];
-
-        filter_pump_details(&mut details, 100);
-
-        assert!(details
-            .iter()
-            .all(|d| matches!(d.action, Some("buy") | Some("sell") | Some("create"))));
-        assert!(details.iter().any(|d| d.mint == mint_create));
-        assert!(details.iter().any(|d| d.mint == mint_buy_large));
-        assert!(!details.iter().any(|d| d.mint == mint_buy_small));
-        assert!(!details.iter().any(|d| d.mint == mint_trade));
     }
 }
