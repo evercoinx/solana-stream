@@ -49,7 +49,7 @@ async fn handle_ready_batch(
             let txs: Vec<&solana_sdk::transaction::VersionedTransaction> =
                 entries.iter().flat_map(|e| e.transactions.iter()).collect();
             info!(
-                "slot={} entries={} txs={} (generic logger)",
+                "slot {} | entries {} | txs {} | (generic logger)",
                 key.slot,
                 entries.len(),
                 txs.len()
@@ -65,7 +65,7 @@ async fn handle_ready_batch(
                 .map(|s| s.to_string())
                 .collect();
                 info!(
-                    "entries preview slot={} fec_set={} sigs_first_non_vote={:?}",
+                    "Entries preview: slot {} | fec_set {} | sigs_first_non_vote {:?}",
                     key.slot, key.fec_set, sigs
                 );
             }
@@ -74,7 +74,7 @@ async fn handle_ready_batch(
                 for event in collect_watch_events(key.slot, &txs, watch_cfg.as_ref()) {
                     for detail in &event.details {
                         info!(
-                            "hit slot={} sig={} mint={} label={:?} action={:?} lamports={:?} token_amount={:?}",
+                            "Hit: slot {} | sig {} | mint {} | label {:?} | action {:?} | lamports {:?} | token_amount {:?}",
                             event.slot,
                             event.hit.signature,
                             detail.mint,
@@ -94,7 +94,7 @@ async fn handle_ready_batch(
         }
         Err(e) => {
             error!(
-                "deshred failed slot={} fec_set={} err={}",
+                "Deshred failed: slot {} | fec_set {} | err {}",
                 key.slot, key.fec_set, e
             );
             state.remove_batch(&key).await;
@@ -108,7 +108,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     dotenv().ok();
     env_logger::init();
 
-    // Read shared settings but avoid pump.fun-specific defaults.
     let cfg = ShredsUdpConfig::from_embedded(EMBEDDED_CONFIG);
     let mut receiver = UdpShredReceiver::bind(&cfg.bind_addr, None).await?;
     let local_addr = receiver.local_addr()?;
@@ -166,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         ShredInsertOutcome::Deferred { key, reason, .. } => {
                             if cfg.log_deferred {
                                 info!(
-                                    "deshred deferred (generic) slot={} fec_set={} reason={}",
+                                    "Deshred deferred (generic): slot {} | fec_set {} | reason {}",
                                     key.slot, key.fec_set, reason
                                 );
                             }

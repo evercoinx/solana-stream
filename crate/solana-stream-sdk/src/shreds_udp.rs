@@ -403,7 +403,7 @@ impl ShredsUdpConfig {
         if let Some(raw) = env_config.as_ref() {
             if !Path::new(raw).exists() {
                 warn!(
-                    "SHREDS_UDP_CONFIG={} not found; falling back to search paths",
+                    "Shreds udp config {} not found; falling back to search paths",
                     raw
                 );
             }
@@ -412,18 +412,18 @@ impl ShredsUdpConfig {
         if let Some(path) = config_path {
             if let Some(file_cfg) = load_config_file(&path) {
                 info!(
-                    "Loaded SHREDS_UDP_CONFIG from {} (cwd={}, exe_dir={})",
+                    "Loaded shreds udp config from {} | cwd {} | exe_dir {}",
                     path.display(),
                     cwd_display,
                     exe_display
                 );
                 cfg = cfg.apply_file(file_cfg);
             } else {
-                warn!("Failed to load SHREDS_UDP_CONFIG from {}", path.display());
+                warn!("Failed to load shreds UDP config from {}", path.display());
             }
         } else {
             warn!(
-                "No SHREDS_UDP_CONFIG found (cwd={}, exe_dir={}, searched={})",
+                "No shreds udp config found: cwd {} | exe_dir {} | searched {}",
                 cwd_display,
                 exe_display,
                 searched_paths
@@ -475,7 +475,7 @@ impl ShredsUdpConfig {
 
     pub fn describe(&self) -> String {
         format!(
-            "bind_addr={} rpc={} slot_window_root={:?} max_future={} strict_fec={} num_data={} num_coding={} require_code_match={} log_raw={} log_shreds={} log_entries={} log_deshred_attempts={} evict_cooldown_ms={} completed_ttl_ms={} warn_once_per_fec={}",
+            "bind_addr {} | rpc {} | slot_window_root {:?} | max_future {} | strict_fec {} | num_data {} | num_coding {} | require_code_match {} | log_raw {} | log_shreds {} | log_entries {} | log_deshred_attempts {} | evict_cooldown_ms {} | completed_ttl_ms {} | warn_once_per_fec {}",
             self.bind_addr,
             self.rpc_endpoint,
             self.slot_window_root,
@@ -775,7 +775,7 @@ impl CodingHeaderSummary {
 
     fn describe(&self) -> String {
         format!(
-            "parsed={} invalid={} num_data={:?} num_coding={:?} first_coding_index={:?} pos_sample={:?}",
+            "parsed {} | invalid {} | num_data {:?} | num_coding {:?} | first_coding_index {:?} | pos_sample {:?}",
             self.parsed,
             self.invalid,
             self.num_data_shreds,
@@ -1189,7 +1189,7 @@ pub async fn cleanup_task(
         
         if shred_buf > 0 || completed > 0 || suppressed > 0 || warnings > 0 || slots > 0 {
             debug!(
-                "cleanup: shred_buffer={} completed={} suppressed={} warnings={} slots={} block_time_cache={}",
+                "Cleanup: shred_buffer {} | completed {} | suppressed {} | warnings {} | slots {} | block_time_cache {}",
                 shred_buf, completed, suppressed, warnings, slots, block_time
             );
         }
@@ -1328,13 +1328,13 @@ pub async fn handle_pumpfun_watcher(
                 if cfg.log_deferred {
                     if let Some(st) = status {
                         info!(
-                            "deshred deferred reason={} {}",
+                            "Deshred deferred: reason {} | status {}",
                             reason,
                             format_status(key.slot, key.version, key.fec_set, &st)
                         );
                     } else {
                         info!(
-                            "deshred deferred reason={} slot={} ver={} fec_set={}",
+                            "Deshred deferred: reason {} | slot {} | ver {} | fec_set {}",
                             reason, key.slot, key.version, key.fec_set
                         );
                     }
@@ -1423,7 +1423,7 @@ async fn process_data_shred(
     let index = decoded.shred.index();
     if cfg.log_shreds {
         info!(
-            "shred DATA slot={} idx={} ver={} fec_set={} last={} complete={} from={} bytes={} canonical={}",
+            "Shred data: slot {} | idx {} | ver {} | fec_set {} | last {} | complete {} | from {} | bytes {} | canonical {}",
             key.slot,
             index,
             key.version,
@@ -1536,7 +1536,7 @@ async fn process_code_shred(
 
     if cfg.log_shreds {
         info!(
-            "shred CODE slot={} idx={} ver={} fec_set={} from={} bytes={} canonical={}",
+            "Shred code: slot {} | idx {} | ver {} | fec_set {} | from {} | bytes {} | canonical {}",
             key.slot,
             index,
             key.version,
@@ -1569,7 +1569,7 @@ async fn process_ready_batch(
             let txs: Vec<&VersionedTransaction> =
                 entries.iter().flat_map(|e| e.transactions.iter()).collect();
             info!(
-                "deshred slot={} entries={} txs={}",
+                "Deshred: slot {} | entries {} | txs {}",
                 key.slot,
                 entries.len(),
                 txs.len()
@@ -1585,14 +1585,14 @@ async fn process_ready_batch(
             if cfg.log_entries {
                 let sigs: Vec<String> = first_signatures(
                     txs.iter().copied(),
-                    usize::MAX, // include all non-vote sigs in preview
+                    usize::MAX,
                     watch_cfg.skip_vote_txs,
                 )
                 .into_iter()
                 .map(|s| s.to_string())
                 .collect();
                 info!(
-                    "entries preview slot={} fec_set={} sigs_first_non_vote={:?}",
+                    "Entries preview: slot {} | fec_set {} | sigs_first_non_vote {:?}",
                     key.slot, key.fec_set, sigs
                 );
             }
@@ -1667,7 +1667,7 @@ async fn prefilter_shred(
         MERKLE_DATA_SHRED_PAYLOAD_SIZE => {
             if metrics.inc_payload_len_merkle_data() == 0 {
                 info!(
-                    "observed merkle data shred payload len={} from {} (Agave merkle sizing)",
+                    "Observed merkle data shred payload: len {} | from {} (Agave merkle sizing)",
                     payload_len, datagram.from
                 );
             }
@@ -1682,7 +1682,7 @@ async fn prefilter_shred(
             let n = metrics.inc_payload_len_other();
             if n % 50 == 0 {
                 warn!(
-                    "unexpected UDP payload len={} from {} (merkle={} legacy={} with_nonce={} max={})",
+                    "Unexpected udp payload: len {} | from {} (merkle {} | legacy {} | with_nonce {} | max {})",
                     payload_len,
                     datagram.from,
                     MERKLE_DATA_SHRED_PAYLOAD_SIZE,
@@ -1697,7 +1697,7 @@ async fn prefilter_shred(
     if payload_len > MAX_UDP_PAYLOAD_SIZE {
         metrics.inc_payload_size_mismatch();
         warn!(
-            "drop packet too large len={} (max {}); from {}",
+            "Drop packet too large: len {} | max {} | from {}",
             payload_len, MAX_UDP_PAYLOAD_SIZE, datagram.from
         );
         return None;
@@ -1706,7 +1706,7 @@ async fn prefilter_shred(
     if payload_len < COMMON_HEADER_LEN {
         metrics.inc_payload_size_mismatch();
         warn!(
-            "drop packet too small len={} (need at least {}) from {}",
+            "Drop packet too small: len {} (need at least {}) from {}",
             payload_len, COMMON_HEADER_LEN, datagram.from
         );
         return None;
@@ -1720,7 +1720,7 @@ async fn prefilter_shred(
                 .fetch_add(1, Ordering::Relaxed);
             if n % 100 == 0 {
                 warn!(
-                    "drop packet: not a valid shred len={} from {} (merkle={} legacy={} with_nonce={} max={})",
+                    "Drop packet: not a valid shred len {} from {} (merkle {} | legacy {} | with_nonce {} | max {})",
                     payload_len,
                     datagram.from,
                     MERKLE_DATA_SHRED_PAYLOAD_SIZE,
@@ -1743,7 +1743,7 @@ async fn prefilter_shred(
         let n = metrics.inc_payload_trailing();
         if n % 100 == 0 {
             debug!(
-                "shred received with trailing bytes slot={} ver={} fec_set={} recv_len={} canonical={} extra={} from={}",
+                "Shred received with trailing bytes: slot {} | ver {} | fec_set {} | recv_len {} | canonical {} | extra {} | from {}",
                 key.slot,
                 key.version,
                 key.fec_set,
@@ -1871,7 +1871,7 @@ async fn prefilter_shred(
 async fn warn_once(state: &ShredsUdpState, key: FecKey, msg: &str, warn_once: bool) {
     if !warn_once {
         warn!(
-            "slot={} ver={} fec_set={} {}",
+            "slot {} | ver {} | fec_set {} | message {}",
             key.slot, key.version, key.fec_set, msg
         );
         return;
@@ -1883,7 +1883,7 @@ async fn warn_once(state: &ShredsUdpState, key: FecKey, msg: &str, warn_once: bo
     }
     state.warnings.insert(key, Instant::now());
     warn!(
-        "slot={} ver={} fec_set={} {}",
+        "slot {} | ver {} | fec_set {} | message {}",
         key.slot, key.version, key.fec_set, msg
     );
 }
@@ -2411,7 +2411,7 @@ impl ShredBatch {
 
 fn format_status(slot: u64, version: u16, fec_set: u32, st: &BatchStatus) -> String {
     format!(
-        "slot={} ver={} fec_set={} have_data={} code={} required_data={:?} required_data_from_data={:?} required_data_from_code={:?} data_complete_seen={} missing_preview={:?} missing_ranges={:?} dup_data={} dup_code={} expected_first_coding_index={:?} expected_num_data={:?} expected_num_coding={:?} coding_summary={}",
+        "slot {} | ver {} | fec_set {} | have_data {} | code {} | required_data {:?} | required_data_from_data {:?} | required_data_from_code {:?} | data_complete_seen {} | missing_preview {:?} | missing_ranges {:?} | dup_data {} | dup_code {} | expected_first_coding_index {:?} | expected_num_data {:?} | expected_num_coding {:?} | coding_summary {}",
         slot,
         version,
         fec_set,

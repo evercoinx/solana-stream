@@ -25,7 +25,7 @@ async fn handle_ready_batch(
             let txs: Vec<&solana_sdk::transaction::VersionedTransaction> =
                 entries.iter().flat_map(|e| e.transactions.iter()).collect();
             info!(
-                "deshred slot={} entries={} txs={}",
+                "Deshred: slot {} | entries {} | txs {}",
                 key.slot,
                 entries.len(),
                 txs.len()
@@ -54,7 +54,7 @@ async fn handle_ready_batch(
                 .map(|s| s.to_string())
                 .collect();
                 info!(
-                    "entries preview slot={} fec_set={} sigs_first_non_vote={:?}",
+                    "Entries preview: slot {} | fec_set {} | sigs_first_non_vote {:?}",
                     key.slot, key.fec_set, sigs
                 );
             }
@@ -67,7 +67,7 @@ async fn handle_ready_batch(
         Err(e) => {
             if cfg.log_deshred_errors {
                 error!(
-                    "deshred failed slot={} fec_set={} err={}",
+                    "Deshred failed: slot {} | fec_set {} | err {}",
                     key.slot, key.fec_set, e
                 );
             }
@@ -86,7 +86,7 @@ fn maybe_custom_watch_hook(events: &[WatchEvent]) {
     // This is the second “sink” point: structured hits. Use it to send alerts/txs/etc.
         for detail in &event.details {
             info!(
-                "[custom hook] slot={} sig={} mint={} action={:?} sol_amount={:?} token_amount={:?}",
+                "[custom hook] slot {} | sig {} | mint {} | action {:?} | sol_amount {:?} | token_amount {:?}",
                 event.slot,
                 event.hit.signature,
                 detail.mint,
@@ -101,7 +101,7 @@ fn maybe_custom_watch_hook(events: &[WatchEvent]) {
 
 fn describe_status(st: &solana_stream_sdk::shreds_udp::BatchStatus) -> String {
     format!(
-        "have_data={} code={} required_data={:?} missing_preview={:?}",
+        "have_data {} | code {} | required_data {:?} | missing_preview {:?}",
         st.data_len, st.code_len, st.required_data, st.missing
     )
 }
@@ -196,7 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             if cfg.log_deshred_attempts {
                                 if let Some(st) = &ready.status {
                                     info!(
-                                        "deshred attempt slot={} ver={} fec_set={} {}",
+                                        "Deshred attempt: slot {} | ver {} | fec_set {} | {}",
                                         ready.key.slot,
                                         ready.key.version,
                                         ready.key.fec_set,
@@ -215,13 +215,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             if cfg.log_deferred {
                                 if let Some(st) = status {
                                     info!(
-                                        "deshred deferred reason={} {}",
+                                        "Deshred deferred: reason {} | status {}",
                                         reason,
                                         describe_status(&st)
                                     );
                                 } else {
                                     info!(
-                                        "deshred deferred reason={} slot={} ver={} fec_set={}",
+                                        "Deshred deferred: reason {} | slot {} | ver {} | fec_set {}",
                                         reason, key.slot, key.version, key.fec_set
                                     );
                                 }
