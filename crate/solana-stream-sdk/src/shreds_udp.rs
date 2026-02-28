@@ -2053,6 +2053,9 @@ pub fn collect_watch_events(
                             name: None,
                             symbol: None,
                             uri: None,
+                            creator: None,
+                            is_mayhem_mode: None,
+                            is_cashback_coin: None,
                         },
                     )
                 })

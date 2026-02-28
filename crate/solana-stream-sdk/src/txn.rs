@@ -96,6 +96,9 @@ pub struct MintDetail {
     pub name: Option<String>,
     pub symbol: Option<String>,
     pub uri: Option<String>,
+    pub creator: Option<Pubkey>,
+    pub is_mayhem_mode: Option<bool>,
+    pub is_cashback_coin: Option<bool>,
 }
 
 pub fn parse_pubkeys_env(var: &str, defaults: &[&str]) -> Vec<Pubkey> {
@@ -376,6 +379,24 @@ impl MintFinder for PumpfunAccountMintFinder {
     }
 }
 
+/// Parses `creator`, `is_mayhem_mode`, and `is_cashback_coin` from a pump.fun CreateV2 instruction.
+///
+/// Layout (after the 8-byte discriminator):
+/// `name(4+n) + symbol(4+n) + uri(4+n) + creator(32) + [is_mayhem_mode(1)] + is_cashback_coin(1)`
+fn parse_create_v2_creator(data: &[u8]) -> Option<(Pubkey, bool, bool)> {
+    let mut pos = 8usize; // skip discriminator
+    for _ in 0..3 {
+        // Skip name, symbol, uri
+        let len = u32::from_le_bytes(data.get(pos..pos + 4)?.try_into().ok()?) as usize;
+        pos = pos.checked_add(4 + len)?;
+    }
+    let creator = Pubkey::from(<[u8; 32]>::try_from(data.get(pos..pos + 32)?).ok()?);
+    let is_cashback_coin = *data.last()? != 0;
+    let trailing = data.len().saturating_sub(pos + 32);
+    let is_mayhem_mode = trailing >= 2 && data.get(pos + 32).is_some_and(|&b| b != 0);
+    Some((creator, is_mayhem_mode, is_cashback_coin))
+}
+
 /// Pump.fun detailer: adds action metadata based on label.
 pub struct PumpfunDetailer {
     pumpfun_ids: Vec<Pubkey>,
@@ -403,7 +424,9 @@ impl MintDetailer for PumpfunDetailer {
             if !self.pumpfun_ids.iter().any(|id| id == program_id) {
                 continue;
             }
+
             let disc = ix.data.get(0..8);
+            let is_create_v2 = disc == Some(&PUMPFUN_CREATE_V2_DISC);
             let kind = match disc {
                 Some(bytes)
                     if bytes == PUMPFUN_CREATE_V2_DISC || bytes == PUMPFUN_CREATE_DISC =>
@@ -429,7 +452,6 @@ impl MintDetailer for PumpfunDetailer {
                 continue;
             }
             if kind.is_none() {
-                // Unknown discriminator: skip to avoid bogus values.
                 continue;
             }
             let (token_amount, sol_amount) = match kind {
@@ -459,6 +481,14 @@ impl MintDetailer for PumpfunDetailer {
                 Some("sell") => (Some("sell"), Some("pump:sell")),
                 _ => (None, None),
             };
+
+            let (creator, is_mayhem_mode, is_cashback_coin) = if is_create_v2 {
+                parse_create_v2_creator(&ix.data)
+                    .map_or((None, None, None), |(c, m, cb)| (Some(c), Some(m), Some(cb)))
+            } else {
+                (None, None, None)
+            };
+
             let entry = out.entry(*mint).or_insert(MintDetail {
                 mint: *mint,
                 label,
@@ -468,6 +498,9 @@ impl MintDetailer for PumpfunDetailer {
                 name: None,
                 symbol: None,
                 uri: None,
+                creator,
+                is_mayhem_mode,
+                is_cashback_coin,
             });
             if let Some(k) = action {
                 if entry.action.is_none() || entry.action == Some("create") {
@@ -481,7 +514,13 @@ impl MintDetailer for PumpfunDetailer {
             if token_amount.is_some() {
                 entry.token_amount = token_amount;
             }
+            if creator.is_some() && entry.creator.is_none() {
+                entry.creator = creator;
+                entry.is_mayhem_mode = is_mayhem_mode;
+                entry.is_cashback_coin = is_cashback_coin;
+            }
         }
+
         for m in mints {
             if !out.contains_key(&m.mint) {
                 let action = m.label.map(|l| {
@@ -501,6 +540,9 @@ impl MintDetailer for PumpfunDetailer {
                     name: None,
                     symbol: None,
                     uri: None,
+                    creator: None,
+                    is_mayhem_mode: None,
+                    is_cashback_coin: None,
                 });
             }
         }
