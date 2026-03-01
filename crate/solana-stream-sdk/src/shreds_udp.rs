@@ -446,11 +446,7 @@ impl ShredsUdpConfig {
             } else {
                 self.watch_program_ids.clone()
             },
-            if self.watch_authorities.is_empty() {
-                parse_pubkeys(None, &[DEFAULT_WATCH_AUTHORITY])
-            } else {
-                self.watch_authorities.clone()
-            },
+            self.watch_authorities.clone(),
         )
         .with_fee_payers(self.fee_payers.clone())
         .with_token_program_ids(if self.token_program_ids.is_empty() {
@@ -1143,7 +1139,9 @@ fn apply_env_overrides(mut cfg: ShredsUdpConfig) -> ShredsUdpConfig {
     if let Ok(raw) = env::var("WATCH_FEE_PAYERS") {
         cfg.fee_payers = parse_pubkeys(Some(raw.as_str()), &[]);
     }
-    cfg.token_program_ids = default_token_program_ids();
+    if cfg.token_program_ids.is_empty() {
+        cfg.token_program_ids = default_token_program_ids();
+    }
     if let Some(ms) = env_parse_u64("SHREDS_UDP_COMPLETED_TTL_MS") {
         cfg.completed_ttl = Duration::from_millis(ms);
     }
@@ -1956,38 +1954,23 @@ fn merge_mint_detail(current: &mut MintDetail, incoming: &MintDetail) {
     let incoming_is_create = matches!(incoming.action, Some("create"));
 
     if incoming_is_create {
-        // Prefer create over later trade classification; keep existing amounts.
         current.action = Some("create");
         if let Some(label) = incoming.label {
             current.label = Some(label);
         }
-        // Keep amounts/names if already present; otherwise let the generic merge below fill them.
         if current.sol_amount.is_none() {
             current.sol_amount = incoming.sol_amount;
         }
         if current.token_amount.is_none() {
             current.token_amount = incoming.token_amount;
         }
-        if current.name.is_none() {
-            current.name = incoming.name.clone();
-        }
-        if current.symbol.is_none() {
-            current.symbol = incoming.symbol.clone();
-        }
-        if current.uri.is_none() {
-            current.uri = incoming.uri.clone();
-        }
-        return;
     } else if current_is_create && incoming_is_trade {
-
-        // Keep create, but backfill amounts from the trade.
         if current.sol_amount.is_none() {
             current.sol_amount = incoming.sol_amount;
         }
         if current.token_amount.is_none() {
             current.token_amount = incoming.token_amount;
         }
-        return;
     } else {
         if let Some(action) = incoming.action {
             if incoming_priority > current_priority || current.action.is_none() {
@@ -2011,15 +1994,13 @@ fn merge_mint_detail(current: &mut MintDetail, incoming: &MintDetail) {
         }
     }
 
-    if current.name.is_none() {
-        current.name = incoming.name.clone();
-    }
-    if current.symbol.is_none() {
-        current.symbol = incoming.symbol.clone();
-    }
-    if current.uri.is_none() {
-        current.uri = incoming.uri.clone();
-    }
+    if current.name.is_none() { current.name = incoming.name.clone(); }
+    if current.symbol.is_none() { current.symbol = incoming.symbol.clone(); }
+    if current.uri.is_none() { current.uri = incoming.uri.clone(); }
+    if current.creator.is_none() { current.creator = incoming.creator; }
+    if current.is_mayhem_mode.is_none() { current.is_mayhem_mode = incoming.is_mayhem_mode; }
+    if current.is_cashback_coin.is_none() { current.is_cashback_coin = incoming.is_cashback_coin; }
+    if current.token_program.is_none() { current.token_program = incoming.token_program; }
 }
 
 pub fn collect_watch_events(
@@ -2056,6 +2037,7 @@ pub fn collect_watch_events(
                             creator: None,
                             is_mayhem_mode: None,
                             is_cashback_coin: None,
+                            token_program: None,
                         },
                     )
                 })
@@ -2071,9 +2053,8 @@ pub fn collect_watch_events(
             if detail_map.is_empty() {
                 continue;
             }
-            let mut details: Vec<MintDetail> = detail_map.values().cloned().collect();
-            details.sort_by(|a, b| a.mint.cmp(&b.mint));
-            details.dedup_by(|a, b| a.mint == b.mint);
+            // BTreeMap already provides unique keys in sorted order.
+            let details: Vec<MintDetail> = detail_map.into_values().collect();
             events.push(WatchEvent {
                 slot,
                 hit,
@@ -2487,11 +2468,15 @@ mod tests {
             name: None,
             symbol: None,
             uri: None,
+            creator: None,
+            is_mayhem_mode: None,
+            is_cashback_coin: None,
+            token_program: None,
         }
     }
 
     #[test]
-    fn merge_prefers_buy_over_create() {
+    fn merge_keeps_create_and_backfills_amounts_from_bundled_buy() {
         let mint = Pubkey::new_from_array([1u8; 32]);
         let mut current = make_detail(mint, Some("create"), Some("pump:create"), None);
         let incoming = MintDetail {
@@ -2501,9 +2486,43 @@ mod tests {
 
         merge_mint_detail(&mut current, &incoming);
 
-        assert_eq!(current.action, Some("buy"));
-        assert_eq!(current.label, Some("pump:buy"));
+        assert_eq!(current.action, Some("create"));
+        assert_eq!(current.label, Some("pump:create"));
         assert_eq!(current.sol_amount, Some(200));
         assert_eq!(current.token_amount, Some(42));
+    }
+
+    #[test]
+    fn merge_propagates_token_program_from_create() {
+        let mint = Pubkey::new_from_array([2u8; 32]);
+        let token_prog = Pubkey::new_from_array([3u8; 32]);
+        let mut current = make_detail(mint, Some("create"), Some("pump:create"), None);
+        let incoming = MintDetail {
+            token_program: Some(token_prog),
+            ..make_detail(mint, Some("create"), Some("pump:create"), None)
+        };
+
+        merge_mint_detail(&mut current, &incoming);
+
+        assert_eq!(current.token_program, Some(token_prog));
+    }
+
+    #[test]
+    fn merge_propagates_creator_and_cashback() {
+        let mint = Pubkey::new_from_array([4u8; 32]);
+        let creator = Pubkey::new_from_array([5u8; 32]);
+        let mut current = make_detail(mint, Some("create"), Some("pump:create"), None);
+        let incoming = MintDetail {
+            creator: Some(creator),
+            is_cashback_coin: Some(true),
+            is_mayhem_mode: Some(false),
+            ..make_detail(mint, Some("create"), Some("pump:create"), None)
+        };
+
+        merge_mint_detail(&mut current, &incoming);
+
+        assert_eq!(current.creator, Some(creator));
+        assert_eq!(current.is_cashback_coin, Some(true));
+        assert_eq!(current.is_mayhem_mode, Some(false));
     }
 }

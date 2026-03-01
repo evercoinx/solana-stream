@@ -10,8 +10,13 @@ use solana_sdk::{
 };
 use solana_vote_program::id as vote_program_id;
 
-const TOKEN_PROGRAM_ID: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-const TOKEN_2022_PROGRAM_ID: &str = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+const TOKEN_PROGRAM: Pubkey = solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const TOKEN_2022_PROGRAM: Pubkey = solana_sdk::pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+#[inline]
+fn is_token_program(pk: &Pubkey) -> bool {
+    *pk == TOKEN_PROGRAM || *pk == TOKEN_2022_PROGRAM
+}
 const DEFAULT_PUMPFUN_PROGRAM_ID: &str = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 const PUMPFUN_CREATE_DISC: [u8; 8] = [0x18, 0x1e, 0xc8, 0x28, 0x05, 0x1c, 0x07, 0x77];
 const PUMPFUN_CREATE_V2_DISC: [u8; 8] = [0xd6, 0x90, 0x4c, 0xec, 0x5f, 0x8b, 0x31, 0xb4];
@@ -33,15 +38,14 @@ pub struct ProgramWatchConfig {
 
 impl ProgramWatchConfig {
     pub fn new(program_ids: Vec<Pubkey>, authorities: Vec<Pubkey>) -> Self {
-        let mf = Arc::new(default_mint_finder(&program_ids));
         Self {
-            program_ids: program_ids.clone(),
+            mint_finder: Arc::new(default_mint_finder(&program_ids)),
+            detailers: default_detailers_from_programs(&program_ids),
+            program_ids,
             authorities,
             fee_payers: HashSet::new(),
             token_program_ids: default_token_program_ids(),
             skip_vote_txs: true,
-            mint_finder: mf.clone(),
-            detailers: default_detailers_from_programs(&program_ids),
         }
     }
 
@@ -99,6 +103,7 @@ pub struct MintDetail {
     pub creator: Option<Pubkey>,
     pub is_mayhem_mode: Option<bool>,
     pub is_cashback_coin: Option<bool>,
+    pub token_program: Option<Pubkey>,
 }
 
 pub fn parse_pubkeys_env(var: &str, defaults: &[&str]) -> Vec<Pubkey> {
@@ -134,13 +139,7 @@ pub fn parse_pubkeys(raw: Option<&str>, defaults: &[&str]) -> Vec<Pubkey> {
 }
 
 pub fn default_token_program_ids() -> Vec<Pubkey> {
-    parse_pubkeys(
-        None,
-        &[
-            TOKEN_PROGRAM_ID,
-            TOKEN_2022_PROGRAM_ID,
-        ],
-    )
+    vec![TOKEN_PROGRAM, TOKEN_2022_PROGRAM]
 }
 
 pub fn is_vote_transaction(tx: &VersionedTransaction) -> bool {
@@ -391,9 +390,8 @@ fn parse_create_v2_creator(data: &[u8]) -> Option<(Pubkey, bool, bool)> {
         pos = pos.checked_add(4 + len)?;
     }
     let creator = Pubkey::from(<[u8; 32]>::try_from(data.get(pos..pos + 32)?).ok()?);
-    let is_cashback_coin = *data.last()? != 0;
-    let trailing = data.len().saturating_sub(pos + 32);
-    let is_mayhem_mode = trailing >= 2 && data.get(pos + 32).is_some_and(|&b| b != 0);
+    let is_mayhem_mode = data.get(pos + 32).copied().unwrap_or(0) != 0;
+    let is_cashback_coin = data.get(pos + 33).copied().unwrap_or(0) != 0;
     Some((creator, is_mayhem_mode, is_cashback_coin))
 }
 
@@ -489,6 +487,10 @@ impl MintDetailer for PumpfunDetailer {
                 (None, None, None)
             };
 
+            let token_program = ix.accounts.iter().find_map(|&idx| {
+                keys.get(idx as usize).filter(|pk| is_token_program(pk)).copied()
+            });
+
             let entry = out.entry(*mint).or_insert(MintDetail {
                 mint: *mint,
                 label,
@@ -501,6 +503,7 @@ impl MintDetailer for PumpfunDetailer {
                 creator,
                 is_mayhem_mode,
                 is_cashback_coin,
+                token_program,
             });
             if let Some(k) = action {
                 if entry.action.is_none() || entry.action == Some("create") {
@@ -518,6 +521,9 @@ impl MintDetailer for PumpfunDetailer {
                 entry.creator = creator;
                 entry.is_mayhem_mode = is_mayhem_mode;
                 entry.is_cashback_coin = is_cashback_coin;
+            }
+            if token_program.is_some() && entry.token_program.is_none() {
+                entry.token_program = token_program;
             }
         }
 
@@ -543,6 +549,7 @@ impl MintDetailer for PumpfunDetailer {
                     creator: None,
                     is_mayhem_mode: None,
                     is_cashback_coin: None,
+                    token_program: None,
                 });
             }
         }
