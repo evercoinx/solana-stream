@@ -490,6 +490,11 @@ impl MintDetailer for PumpfunDetailer {
             let token_program = ix.accounts.iter().find_map(|&idx| {
                 keys.get(idx as usize).filter(|pk| is_token_program(pk)).copied()
             });
+            let token_program = if token_program.is_none() && is_create_v2 {
+                Some(TOKEN_2022_PROGRAM)
+            } else {
+                token_program
+            };
 
             let entry = out.entry(*mint).or_insert(MintDetail {
                 mint: *mint,
