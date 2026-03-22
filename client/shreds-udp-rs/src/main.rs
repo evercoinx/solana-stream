@@ -61,7 +61,7 @@ async fn handle_ready_batch(
 
             state.remove_batch(&key).await;
             if matches!(ready.source, ShredSource::Data) {
-                state.mark_completed(key).await;
+                state.mark_completed(key);
             }
         }
         Err(e) => {
@@ -72,7 +72,7 @@ async fn handle_ready_batch(
                 );
             }
             state.remove_batch(&key).await;
-            state.mark_suppressed(key).await;
+            state.mark_suppressed(key);
         }
     }
 }

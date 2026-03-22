@@ -124,6 +124,7 @@ impl UdpShredReceiver {
 }
 
 /// Attempt to deshred a batch of shreds into `Entry` items.
+#[must_use = "deshred result must be consumed"]
 pub fn deshred_shreds_to_entries(
     shreds: &[solana_ledger::shred::Shred],
 ) -> Result<Vec<solana_entry::entry::Entry>> {
@@ -166,7 +167,7 @@ pub struct ShredsUdpConfig {
 
 #[derive(Clone)]
 pub struct ShredsUdpState {
-    transactions_by_slot: Option<Arc<DashMap<u64, Vec<(String, DateTime<Utc>)>>>>,
+    transactions_by_slot: Option<Arc<DashMap<u64, Vec<DateTime<Utc>>>>>,
     shred_buffer: Arc<Mutex<HashMap<FecKey, ShredBatch>>>,
     completed: Arc<DashMap<FecKey, Instant>>,
     suppressed: Arc<DashMap<FecKey, Instant>>,
@@ -279,12 +280,8 @@ impl Default for ShredsUdpConfig {
 }
 
 impl ShredsUdpConfig {
-    pub fn defaults() -> Self {
-        Self::default()
-    }
-
     pub fn from_embedded(raw: &str) -> Self {
-        let mut cfg = Self::defaults();
+        let mut cfg = Self::default();
 
         if let Some(file_cfg) = load_config_str(raw) {
             info!("Loaded embedded SHREDS_UDP_CONFIG");
@@ -382,7 +379,7 @@ impl ShredsUdpConfig {
     }
 
     pub fn from_env() -> Self {
-        let mut cfg = Self::defaults();
+        let mut cfg = Self::default();
 
         let cwd = env::current_dir().ok();
         let exe_dir = env::current_exe()
@@ -518,9 +515,7 @@ impl ShredsUdpState {
         self.block_time_cache.clone()
     }
 
-    pub fn transactions_by_slot(
-        &self,
-    ) -> Option<Arc<DashMap<u64, Vec<(String, DateTime<Utc>)>>>> {
+    pub fn transactions_by_slot(&self) -> Option<Arc<DashMap<u64, Vec<DateTime<Utc>>>>> {
         self.transactions_by_slot.clone()
     }
 
@@ -532,8 +527,8 @@ impl ShredsUdpState {
         self.suppressed_ttl
     }
 
-    pub fn metrics(&self) -> Arc<ShredMetrics> {
-        self.metrics.clone()
+    pub fn metrics(&self) -> &ShredMetrics {
+        &self.metrics
     }
 
     /// Returns the latest slot number observed from any decoded shred.
@@ -555,11 +550,11 @@ impl ShredsUdpState {
         self.shred_buffer.lock().await.remove(key);
     }
 
-    pub async fn mark_completed(&self, key: FecKey) {
+    pub fn mark_completed(&self, key: FecKey) {
         self.completed.insert(key, Instant::now());
     }
 
-    pub async fn mark_suppressed(&self, key: FecKey) {
+    pub fn mark_suppressed(&self, key: FecKey) {
         self.suppressed.insert(key, Instant::now());
     }
 
@@ -643,9 +638,7 @@ impl ShredsUdpState {
     }
 }
 
-pub async fn run_shreds_udp(
-    cfg: ShredsUdpConfig,
-) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn run_shreds_udp(cfg: ShredsUdpConfig) -> crate::Result<()> {
     let mut receiver = UdpShredReceiver::bind(&cfg.bind_addr, None).await?;
     let local_addr = receiver.local_addr()?;
     info!("Listening for UDP shreds on {}", local_addr);
@@ -675,7 +668,7 @@ pub async fn run_shreds_udp(
         let state = state.clone();
         tokio::spawn(async move {
             loop {
-                if let Err(e) = handle_pumpfun_watcher(
+                if let Err(e) = handle_shred_watcher(
                     &mut receiver,
                     &state,
                     &cfg,
@@ -690,18 +683,17 @@ pub async fn run_shreds_udp(
         })
     };
 
+    let map_join_err = |e: tokio::task::JoinError| {
+        SolanaStreamError::Connection(format!("task panicked: {e}"))
+    };
     if let Some(latency_handle) = latency_handle {
-        tokio::try_join!(latency_handle, receive_handle)
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+        tokio::try_join!(latency_handle, receive_handle).map_err(map_join_err)?;
     } else {
-        receive_handle
-            .await
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))?;
+        receive_handle.await.map_err(map_join_err)?;
     }
     Ok(())
 }
 
-#[derive(Clone)]
 struct ShredBatch {
     data_shreds: HashMap<u32, Shred>,
     code_shreds: HashMap<u32, Shred>,
@@ -1162,15 +1154,14 @@ fn apply_env_overrides(mut cfg: ShredsUdpConfig) -> ShredsUdpConfig {
     cfg
 }
 
-fn prepare_log_message(
+fn record_slot_receive_time(
     slot: u64,
-    transactions_by_slot: &Arc<DashMap<u64, Vec<(String, DateTime<Utc>)>>>,
+    transactions_by_slot: &Arc<DashMap<u64, Vec<DateTime<Utc>>>>,
 ) {
-    let received_time = Utc::now();
     transactions_by_slot
         .entry(slot)
-        .or_insert_with(Vec::new)
-        .push(("dummy_signature".to_string(), received_time));
+        .or_default()
+        .push(Utc::now());
 }
 
 /// Cleanup task to manage memory from unbounded caches.
@@ -1196,7 +1187,7 @@ pub async fn cleanup_task(
 
 pub async fn latency_monitor_task(
     block_time_cache: BlockTimeCache,
-    transactions_by_slot: Arc<DashMap<u64, Vec<(String, DateTime<Utc>)>>>,
+    transactions_by_slot: Arc<DashMap<u64, Vec<DateTime<Utc>>>>,
 ) {
     const MAX_LATENCIES: usize = 420;
     let mut latency_buffer = VecDeque::new();
@@ -1238,7 +1229,7 @@ pub async fn latency_monitor_task(
                     .map(|(_, entries)| entries)
                     .unwrap_or_default();
 
-                for (_, recv_time) in txs {
+                for recv_time in txs {
                     let latency = recv_time
                         .signed_duration_since(block_time)
                         .num_milliseconds()
@@ -1267,7 +1258,7 @@ pub async fn latency_monitor_task(
     }
 }
 
-pub async fn handle_pumpfun_watcher(
+pub async fn handle_shred_watcher(
     receiver: &mut UdpShredReceiver,
     state: &ShredsUdpState,
     cfg: &ShredsUdpConfig,
@@ -1350,15 +1341,6 @@ pub async fn handle_pumpfun_watcher(
     Ok(())
 }
 
-/// Decode and prefilter a UDP datagram into a sanitized shred.
-pub async fn decode_udp_datagram(
-    datagram: &UdpDatagram,
-    state: &ShredsUdpState,
-    cfg: &ShredsUdpConfig,
-) -> Option<DecodedShred> {
-    prefilter_shred(datagram, state, cfg).await
-}
-
 /// Insert a decoded shred into the in-memory FEC buffer and report readiness.
 pub async fn insert_shred(
     decoded: DecodedShred,
@@ -1411,10 +1393,10 @@ async fn process_data_shred(
     cfg: &ShredsUdpConfig,
     policy: &DeshredPolicy,
     key: FecKey,
-    metrics: Arc<ShredMetrics>,
+    metrics: &ShredMetrics,
 ) -> ShredInsertOutcome {
     if let Some(txs) = state.transactions_by_slot() {
-        prepare_log_message(key.slot, &txs);
+        record_slot_receive_time(key.slot, &txs);
     }
     let last = decoded.shred.last_in_slot();
     let complete = decoded.shred.data_complete();
@@ -1442,7 +1424,7 @@ async fn process_data_shred(
             entry.update_required_data_from_data(required);
         }
 
-        entry.insert_data_shred(decoded.shred, metrics.as_ref());
+        entry.insert_data_shred(decoded.shred, metrics);
         let ready = entry.ready_to_deshred(policy);
         let status = match &ready {
             ReadyToDeshred::Ready(_) | ReadyToDeshred::Gated(_) => {
@@ -1484,7 +1466,7 @@ async fn process_code_shred(
     cfg: &ShredsUdpConfig,
     policy: &DeshredPolicy,
     key: FecKey,
-    metrics: Arc<ShredMetrics>,
+    metrics: &ShredMetrics,
 ) -> ShredInsertOutcome {
     let index = decoded.shred.index();
     let received_len = decoded.received_len;
@@ -1498,7 +1480,7 @@ async fn process_code_shred(
             entry.update_required_data_from_code(header.num_data_shreds as usize);
         }
 
-        entry.insert_code_shred(decoded.shred, metrics.as_ref());
+        entry.insert_code_shred(decoded.shred, metrics);
         let ready = entry.ready_to_deshred(policy);
         let status = match &ready {
             ReadyToDeshred::Ready(_) | ReadyToDeshred::Gated(_) => {
@@ -1597,14 +1579,16 @@ async fn process_ready_batch(
 
             state.remove_batch(&key).await;
             if matches!(source, ShredSource::Data) {
-                state.mark_completed(key).await;
+                state.mark_completed(key);
             }
         }
         Err(e) => {
-            let err_str = e.to_string();
-            if err_str.contains("entry decode failed")
-                || err_str.contains("invalid transaction message version")
-            {
+            let is_entry_decode_error = matches!(
+                &e,
+                crate::SolanaStreamError::Serialization(s)
+                    if s.starts_with("entry decode failed")
+            );
+            if is_entry_decode_error {
                 metrics.inc_entry_decode_failed();
                 metrics.inc_fec_set_evicted_on_decode();
             }
@@ -1621,7 +1605,7 @@ async fn process_ready_batch(
                 }
             }
             state.remove_batch(&key).await;
-            state.mark_suppressed(key).await;
+            state.mark_suppressed(key);
         }
     }
 }
@@ -1653,7 +1637,8 @@ fn decode_shred(payload: &[u8]) -> Option<DecodedShred> {
     }
 }
 
-async fn prefilter_shred(
+/// Decode and prefilter a UDP datagram into a sanitized shred ready for FEC insertion.
+pub async fn decode_udp_datagram(
     datagram: &UdpDatagram,
     state: &ShredsUdpState,
     cfg: &ShredsUdpConfig,
@@ -2003,6 +1988,7 @@ fn merge_mint_detail(current: &mut MintDetail, incoming: &MintDetail) {
     if current.token_program.is_none() { current.token_program = incoming.token_program; }
 }
 
+#[must_use]
 pub fn collect_watch_events(
     slot: u64,
     txs: &[&VersionedTransaction],
@@ -2193,7 +2179,7 @@ pub fn log_watch_events(
             let mint = event
                 .hit
                 .mints
-                .get(0)
+                .first()
                 .map(|m| m.mint.to_string())
                 .unwrap_or_else(|| "<unknown>".to_string());
             let fee_payer_display = event.hit.fee_payer.to_string();

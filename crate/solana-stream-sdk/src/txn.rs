@@ -5,7 +5,7 @@ use std::{
 };
 
 use solana_sdk::{
-    message::VersionedMessage, pubkey::Pubkey, signature::Signature,
+    pubkey::Pubkey, signature::Signature,
     transaction::VersionedTransaction,
 };
 use solana_vote_program::id as vote_program_id;
@@ -27,10 +27,10 @@ const PUMPFUN_SELL_DISC: [u8; 8] = [0x33, 0xe6, 0x85, 0xa4, 0x01, 0x7f, 0x83, 0x
 
 #[derive(Clone)]
 pub struct ProgramWatchConfig {
-    pub program_ids: Vec<Pubkey>,
-    pub authorities: Vec<Pubkey>,
+    pub program_ids: HashSet<Pubkey>,
+    pub authorities: HashSet<Pubkey>,
     pub fee_payers: HashSet<Pubkey>,
-    pub token_program_ids: Vec<Pubkey>,
+    pub token_program_ids: HashSet<Pubkey>,
     pub skip_vote_txs: bool,
     pub mint_finder: Arc<dyn MintFinder + Send + Sync>,
     pub detailers: Vec<Arc<dyn MintDetailer + Send + Sync>>,
@@ -38,19 +38,20 @@ pub struct ProgramWatchConfig {
 
 impl ProgramWatchConfig {
     pub fn new(program_ids: Vec<Pubkey>, authorities: Vec<Pubkey>) -> Self {
+        let program_ids_set: HashSet<Pubkey> = program_ids.iter().copied().collect();
         Self {
             mint_finder: Arc::new(default_mint_finder(&program_ids)),
             detailers: default_detailers_from_programs(&program_ids),
-            program_ids,
-            authorities,
+            program_ids: program_ids_set,
+            authorities: authorities.into_iter().collect(),
             fee_payers: HashSet::new(),
-            token_program_ids: default_token_program_ids(),
+            token_program_ids: default_token_program_ids().into_iter().collect(),
             skip_vote_txs: true,
         }
     }
 
     pub fn with_token_program_ids(mut self, token_program_ids: Vec<Pubkey>) -> Self {
-        self.token_program_ids = token_program_ids;
+        self.token_program_ids = token_program_ids.into_iter().collect();
         self
     }
 
@@ -151,6 +152,7 @@ pub fn is_vote_transaction(tx: &VersionedTransaction) -> bool {
     })
 }
 
+#[must_use]
 pub fn detect_program_hit(
     tx: &VersionedTransaction,
     cfg: &ProgramWatchConfig,
@@ -159,21 +161,16 @@ pub fn detect_program_hit(
         return None;
     }
     let keys = tx.message.static_account_keys();
-    
+
     if !cfg.fee_payers.is_empty() {
-        let fee_payer = keys.get(0);
-        let fee_payer_matches = fee_payer
-            .map(|fp| cfg.fee_payers.contains(fp))
-            .unwrap_or(false);
+        let fee_payer_matches = keys.first().map(|fp| cfg.fee_payers.contains(fp)).unwrap_or(false);
         if !fee_payer_matches {
             return None;
         }
     }
-    
-    let authority_hit = !cfg.authorities.is_empty()
-        && keys
-            .iter()
-            .any(|key| cfg.authorities.iter().any(|auth| auth == key));
+
+    let authority_hit =
+        !cfg.authorities.is_empty() && keys.iter().any(|key| cfg.authorities.contains(key));
     let mut program_hit = false;
 
     for ix in tx.message.instructions() {
@@ -183,7 +180,7 @@ pub fn detect_program_hit(
         if cfg.skip_vote_txs && *program_id == vote_program_id() {
             return None;
         }
-        if !program_hit && cfg.program_ids.iter().any(|want| want == program_id) {
+        if !program_hit && cfg.program_ids.contains(program_id) {
             program_hit = true;
         }
     }
@@ -191,46 +188,18 @@ pub fn detect_program_hit(
     if !program_hit && !authority_hit {
         return None;
     }
-    
+
     let mint_accounts: Vec<MintInfo> = cfg.mint_finder.find_mints(tx, cfg);
 
     Some(ProgramHit {
-        signature: tx.signatures.get(0).cloned().unwrap_or_default(),
-        fee_payer: *keys.get(0).expect("valid transaction must have fee payer at account_keys[0]"),
+        signature: tx.signatures.first().cloned().unwrap_or_default(),
+        fee_payer: *keys.first().expect("valid transaction must have fee payer at account_keys[0]"),
         program_hit,
         authority_hit,
         mints: mint_accounts,
     })
 }
 
-pub fn extract_mint_accounts(
-    message: &VersionedMessage,
-    token_program_ids: &[Pubkey],
-) -> Vec<Pubkey> {
-    let mut mints = BTreeSet::new();
-    let ixs = message.instructions();
-    let keys = message.static_account_keys();
-    for ix in ixs {
-        let Some(program_id) = keys.get(ix.program_id_index as usize) else {
-            continue;
-        };
-        if !token_program_ids.iter().any(|id| id == program_id) {
-            continue;
-        }
-        let Some(tag) = ix.data.first() else {
-            continue;
-        };
-        // Token program: 0 InitializeMint, 7 MintTo, 14 InitializeMint2, 20 InitializeMintCloseAuthority
-        if matches!(tag, 0 | 7 | 14 | 20) {
-            if let Some(mint_idx) = ix.accounts.get(0) {
-                if let Some(mint) = keys.get(*mint_idx as usize) {
-                    mints.insert(*mint);
-                }
-            }
-        }
-    }
-    mints.into_iter().collect()
-}
 
 pub fn first_signatures<'a, I>(txs: I, limit: usize, skip_vote_txs: bool) -> Vec<Signature>
 where
@@ -238,14 +207,10 @@ where
 {
     txs.into_iter()
         .filter(|tx| !(skip_vote_txs && is_vote_transaction(tx)))
-        .filter_map(|tx| tx.signatures.get(0))
+        .filter_map(|tx| tx.signatures.first())
         .take(limit)
         .cloned()
         .collect()
-}
-
-pub fn fmt_pubkeys(pubkeys: &[Pubkey]) -> Vec<String> {
-    pubkeys.iter().map(|p| p.to_string()).collect()
 }
 
 pub trait MintFinder {
@@ -282,14 +247,14 @@ impl MintFinder for SplTokenMintFinder {
             let Some(program_id) = keys.get(ix.program_id_index as usize) else {
                 continue;
             };
-            if !cfg.token_program_ids.iter().any(|id| id == program_id) {
+            if !cfg.token_program_ids.contains(program_id) {
                 continue;
             }
             let Some(tag) = ix.data.first() else {
                 continue;
             };
             if matches!(tag, 0 | 7 | 14 | 20) {
-                if let Some(mint_idx) = ix.accounts.get(0) {
+                if let Some(mint_idx) = ix.accounts.first() {
                     if let Some(mint) = keys.get(*mint_idx as usize) {
                         insert_mint(&mut mint_accounts, *mint, Some("spl-token"));
                     }
@@ -302,18 +267,19 @@ impl MintFinder for SplTokenMintFinder {
 
 /// Pump.fun finder: picks mint from pump.fun instructions by account position (create_v2/buy/sell).
 pub struct PumpfunAccountMintFinder {
-    pumpfun_ids: Vec<Pubkey>,
+    pumpfun_ids: HashSet<Pubkey>,
 }
 
 impl PumpfunAccountMintFinder {
     pub fn new(pumpfun_ids: Vec<Pubkey>) -> Self {
-        Self { pumpfun_ids }
+        Self { pumpfun_ids: pumpfun_ids.into_iter().collect() }
     }
 }
 
+const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk::pubkey!("11111111111111111111111111111111");
+
 fn is_system_id(pk: &Pubkey) -> bool {
-    // Avoid depending on solana_sdk::system_program in this build profile.
-    pk.to_string() == "11111111111111111111111111111111"
+    *pk == SYSTEM_PROGRAM_ID
 }
 
 impl MintFinder for PumpfunAccountMintFinder {
@@ -324,7 +290,7 @@ impl MintFinder for PumpfunAccountMintFinder {
             let Some(program_id) = keys.get(ix.program_id_index as usize) else {
                 continue;
             };
-            if !self.pumpfun_ids.iter().any(|id| id == program_id) {
+            if !self.pumpfun_ids.contains(program_id) {
                 continue;
             }
             let kind = match ix.data.get(0..8) {
@@ -341,7 +307,7 @@ impl MintFinder for PumpfunAccountMintFinder {
 
             match kind {
                 Some("pump:create") => {
-                    if let Some(mint_idx) = ix.accounts.get(0) {
+                    if let Some(mint_idx) = ix.accounts.first() {
                         if let Some(mint) = keys.get(*mint_idx as usize) {
                             if !is_system_id(mint) {
                                 insert_mint(&mut mints, *mint, Some("pump:create"));
@@ -350,24 +316,19 @@ impl MintFinder for PumpfunAccountMintFinder {
                     }
                 }
                 Some("pump:buy") | Some("pump:buy_exact") | Some("pump:sell") => {
-                    if ix.accounts.len() > 2 {
-                        if let Some(mint_idx) = ix.accounts.get(2) {
-                            if let Some(mint) = keys.get(*mint_idx as usize) {
-                                if !is_system_id(mint) {
-                                    insert_mint(&mut mints, *mint, kind);
-                                }
+                    if let Some(mint_idx) = ix.accounts.get(2) {
+                        if let Some(mint) = keys.get(*mint_idx as usize) {
+                            if !is_system_id(mint) {
+                                insert_mint(&mut mints, *mint, kind);
                             }
                         }
                     }
                 }
                 _ => {
-                    // Fallback: keep a generic trade tag if we can't classify (e.g., new ix name)
-                    if ix.accounts.len() > 2 {
-                        if let Some(mint_idx) = ix.accounts.get(2) {
-                            if let Some(mint) = keys.get(*mint_idx as usize) {
-                                if !is_system_id(mint) {
-                                    insert_mint(&mut mints, *mint, Some("pump:trade"));
-                                }
+                    if let Some(mint_idx) = ix.accounts.get(2) {
+                        if let Some(mint) = keys.get(*mint_idx as usize) {
+                            if !is_system_id(mint) {
+                                insert_mint(&mut mints, *mint, Some("pump:trade"));
                             }
                         }
                     }
@@ -397,12 +358,12 @@ fn parse_create_v2_creator(data: &[u8]) -> Option<(Pubkey, bool, bool)> {
 
 /// Pump.fun detailer: adds action metadata based on label.
 pub struct PumpfunDetailer {
-    pumpfun_ids: Vec<Pubkey>,
+    pumpfun_ids: HashSet<Pubkey>,
 }
 
 impl PumpfunDetailer {
     pub fn new(pumpfun_ids: Vec<Pubkey>) -> Self {
-        Self { pumpfun_ids }
+        Self { pumpfun_ids: pumpfun_ids.into_iter().collect() }
     }
 }
 
@@ -419,7 +380,7 @@ impl MintDetailer for PumpfunDetailer {
             let Some(program_id) = keys.get(ix.program_id_index as usize) else {
                 continue;
             };
-            if !self.pumpfun_ids.iter().any(|id| id == program_id) {
+            if !self.pumpfun_ids.contains(program_id) {
                 continue;
             }
 
@@ -437,7 +398,7 @@ impl MintDetailer for PumpfunDetailer {
                 _ => None,
             };
             let mint_idx = match kind {
-                Some("create") => ix.accounts.get(0),
+                Some("create") => ix.accounts.first(),
                 _ => ix.accounts.get(2),
             };
             let Some(mint_idx) = mint_idx else {
@@ -585,15 +546,20 @@ impl MintFinder for CompositeMintFinder {
     }
 }
 
-fn default_mint_finder(program_ids: &[Pubkey]) -> CompositeMintFinder {
-    let mut pumpfun_ids: Vec<Pubkey> = program_ids.to_vec();
-    if pumpfun_ids.is_empty() {
-        if let Ok(id) = Pubkey::from_str(DEFAULT_PUMPFUN_PROGRAM_ID) {
-            pumpfun_ids.push(id);
-        }
+fn pumpfun_ids_or_default(program_ids: &[Pubkey]) -> Vec<Pubkey> {
+    if program_ids.is_empty() {
+        Pubkey::from_str(DEFAULT_PUMPFUN_PROGRAM_ID)
+            .map(|id| vec![id])
+            .unwrap_or_default()
+    } else {
+        program_ids.to_vec()
     }
+}
+
+fn default_mint_finder(program_ids: &[Pubkey]) -> CompositeMintFinder {
+    let pumpfun_ids = pumpfun_ids_or_default(program_ids);
     CompositeMintFinder::new(vec![
-        Arc::new(PumpfunAccountMintFinder::new(pumpfun_ids.clone())),
+        Arc::new(PumpfunAccountMintFinder::new(pumpfun_ids)),
         Arc::new(SplTokenMintFinder),
     ])
 }
@@ -601,11 +567,6 @@ fn default_mint_finder(program_ids: &[Pubkey]) -> CompositeMintFinder {
 pub fn default_detailers_from_programs(
     program_ids: &[Pubkey],
 ) -> Vec<Arc<dyn MintDetailer + Send + Sync>> {
-    let mut pumpfun_ids: Vec<Pubkey> = program_ids.to_vec();
-    if pumpfun_ids.is_empty() {
-        if let Ok(id) = Pubkey::from_str(DEFAULT_PUMPFUN_PROGRAM_ID) {
-            pumpfun_ids.push(id);
-        }
-    }
+    let pumpfun_ids = pumpfun_ids_or_default(program_ids);
     vec![Arc::new(PumpfunDetailer::new(pumpfun_ids))]
 }
