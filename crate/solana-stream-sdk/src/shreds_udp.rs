@@ -1136,7 +1136,7 @@ fn apply_env_overrides(mut cfg: ShredsUdpConfig) -> ShredsUdpConfig {
         cfg.watch_authorities = watch_authorities;
     }
 
-    if let Ok(raw) = env::var("WATCH_FEE_PAYERS") {
+    if let Ok(raw) = env::var("TRACKED_ACCOUNTS") {
         cfg.fee_payers = parse_pubkeys(Some(raw.as_str()), &[]);
     }
     if cfg.token_program_ids.is_empty() {
