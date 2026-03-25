@@ -15,7 +15,7 @@ name = "r2"
 path = "src/bin/upload_bin_to_r2.rs"
 
 [dependencies]
-reqwest = { workspace = true, features = ["json", "multipart", "stream", "blocking", "rustls-tls"] }
+reqwest = { workspace = true, features = ["json", "multipart", "stream", "blocking", "rustls"] }
 tokio = { workspace = true, features = ["full"] }
 dotenv = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
