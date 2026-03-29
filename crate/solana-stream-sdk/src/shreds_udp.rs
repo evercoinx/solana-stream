@@ -1986,6 +1986,7 @@ fn merge_mint_detail(current: &mut MintDetail, incoming: &MintDetail) {
     if current.is_mayhem_mode.is_none() { current.is_mayhem_mode = incoming.is_mayhem_mode; }
     if current.is_cashback_coin.is_none() { current.is_cashback_coin = incoming.is_cashback_coin; }
     if current.token_program.is_none() { current.token_program = incoming.token_program; }
+    if incoming.is_tokenized_agent == Some(true) { current.is_tokenized_agent = Some(true); }
 }
 
 #[must_use]
@@ -2024,6 +2025,7 @@ pub fn collect_watch_events(
                             is_mayhem_mode: None,
                             is_cashback_coin: None,
                             token_program: None,
+                            is_tokenized_agent: None,
                         },
                     )
                 })
@@ -2458,6 +2460,7 @@ mod tests {
             is_mayhem_mode: None,
             is_cashback_coin: None,
             token_program: None,
+            is_tokenized_agent: None,
         }
     }
 

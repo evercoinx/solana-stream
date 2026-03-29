@@ -25,6 +25,10 @@ const PUMPFUN_BUY_EXACT_SOL_IN_DISC: [u8; 8] =
     [0x38, 0xfc, 0x74, 0x08, 0x9e, 0xdf, 0xcd, 0x5f];
 const PUMPFUN_SELL_DISC: [u8; 8] = [0x33, 0xe6, 0x85, 0xa4, 0x01, 0x7f, 0x83, 0xad];
 
+const TOKENIZED_AGENT_PROGRAM_ID: &str = "AgenTMiC2hvxGebTsgmsD4HHBa8WEcqGFf87iwRRxLo7";
+const TOKENIZED_AGENT_INITIALIZE_DISC: [u8; 8] = [0xb4, 0xf8, 0xa3, 0x08, 0x31, 0x5e, 0x7e, 0x60];
+const TOKENIZED_AGENT_INITIALIZE_MINT_ACCOUNT_IDX: usize = 3;
+
 #[derive(Clone)]
 pub struct ProgramWatchConfig {
     pub program_ids: HashSet<Pubkey>,
@@ -105,6 +109,7 @@ pub struct MintDetail {
     pub is_mayhem_mode: Option<bool>,
     pub is_cashback_coin: Option<bool>,
     pub token_program: Option<Pubkey>,
+    pub is_tokenized_agent: Option<bool>,
 }
 
 pub fn parse_pubkeys_env(var: &str, defaults: &[&str]) -> Vec<Pubkey> {
@@ -359,11 +364,16 @@ fn parse_create_v2_creator(data: &[u8]) -> Option<(Pubkey, bool, bool)> {
 /// Pump.fun detailer: adds action metadata based on label.
 pub struct PumpfunDetailer {
     pumpfun_ids: HashSet<Pubkey>,
+    tokenized_agent_id: Pubkey,
 }
 
 impl PumpfunDetailer {
     pub fn new(pumpfun_ids: Vec<Pubkey>) -> Self {
-        Self { pumpfun_ids: pumpfun_ids.into_iter().collect() }
+        Self {
+            pumpfun_ids: pumpfun_ids.into_iter().collect(),
+            tokenized_agent_id: Pubkey::from_str(TOKENIZED_AGENT_PROGRAM_ID)
+                .expect("hardcoded TOKENIZED_AGENT_PROGRAM_ID is valid"),
+        }
     }
 }
 
@@ -470,6 +480,7 @@ impl MintDetailer for PumpfunDetailer {
                 is_mayhem_mode,
                 is_cashback_coin,
                 token_program,
+                is_tokenized_agent: None,
             });
             if let Some(k) = action {
                 if entry.action.is_none() || entry.action == Some("create") {
@@ -490,6 +501,25 @@ impl MintDetailer for PumpfunDetailer {
             }
             if token_program.is_some() && entry.token_program.is_none() {
                 entry.token_program = token_program;
+            }
+        }
+
+        for ix in tx.message.instructions() {
+            let Some(program_id) = keys.get(ix.program_id_index as usize) else {
+                continue;
+            };
+            if program_id != &self.tokenized_agent_id {
+                continue;
+            }
+            if ix.data.get(0..8) != Some(&TOKENIZED_AGENT_INITIALIZE_DISC) {
+                continue;
+            }
+            if let Some(&mint_idx) = ix.accounts.get(TOKENIZED_AGENT_INITIALIZE_MINT_ACCOUNT_IDX) {
+                if let Some(mint) = keys.get(mint_idx as usize) {
+                    if let Some(detail) = out.get_mut(mint) {
+                        detail.is_tokenized_agent = Some(true);
+                    }
+                }
             }
         }
 
@@ -516,6 +546,7 @@ impl MintDetailer for PumpfunDetailer {
                     is_mayhem_mode: None,
                     is_cashback_coin: None,
                     token_program: None,
+                    is_tokenized_agent: None,
                 });
             }
         }
