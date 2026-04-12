@@ -5,6 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+type TransactionsBySlot = Arc<Mutex<HashMap<u64, Vec<(String, DateTime<Utc>)>>>>;
+
 #[derive(Clone)]
 pub struct BlockTimeCache {
     rpc_client: Arc<RpcClient>,
@@ -70,10 +72,7 @@ impl BlockTimeCache {
     }
 }
 
-pub async fn prepare_log_message(
-    slot: u64,
-    transactions_by_slot: &Arc<Mutex<HashMap<u64, Vec<(String, DateTime<Utc>)>>>>,
-) {
+pub async fn prepare_log_message(slot: u64, transactions_by_slot: &TransactionsBySlot) {
     let received_time = Utc::now();
     transactions_by_slot
         .lock()
@@ -85,7 +84,7 @@ pub async fn prepare_log_message(
 
 pub async fn latency_monitor_task(
     block_time_cache: BlockTimeCache,
-    transactions_by_slot: Arc<Mutex<HashMap<u64, Vec<(String, DateTime<Utc>)>>>>,
+    transactions_by_slot: TransactionsBySlot,
 ) {
     const MAX_LATENCIES: usize = 420;
     let mut latency_buffer = Vec::new();

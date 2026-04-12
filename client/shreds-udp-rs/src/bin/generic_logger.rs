@@ -1,5 +1,4 @@
 use dotenvy::dotenv;
-use env_logger;
 use log::{error, info};
 use solana_stream_sdk::{
     shreds_udp::{
@@ -56,14 +55,11 @@ async fn handle_ready_batch(
             );
 
             if cfg.log_entries {
-                let sigs: Vec<String> = first_signatures(
-                    txs.iter().copied(),
-                    12,
-                    watch_cfg.skip_vote_txs,
-                )
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect();
+                let sigs: Vec<String> =
+                    first_signatures(txs.iter().copied(), 12, watch_cfg.skip_vote_txs)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect();
                 info!(
                     "Entries preview: slot {} | fec_set {} | sigs_first_non_vote {:?}",
                     key.slot, key.fec_set, sigs
@@ -118,10 +114,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         require_code_match: cfg.require_code_match,
     };
     let state = ShredsUdpState::new(&cfg);
-    let watch_program_ids =
-        parse_pubkeys(std::env::var("GENERIC_WATCH_PROGRAM_IDS").ok().as_deref(), &[]);
-    let watch_authorities =
-        parse_pubkeys(std::env::var("GENERIC_WATCH_AUTHORITIES").ok().as_deref(), &[]);
+    let watch_program_ids = parse_pubkeys(
+        std::env::var("GENERIC_WATCH_PROGRAM_IDS").ok().as_deref(),
+        &[],
+    );
+    let watch_authorities = parse_pubkeys(
+        std::env::var("GENERIC_WATCH_AUTHORITIES").ok().as_deref(),
+        &[],
+    );
     let watch_cfg = Arc::new(
         ProgramWatchConfig::new(watch_program_ids, watch_authorities)
             .with_token_program_ids(cfg.token_program_ids.clone())
@@ -138,6 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             loop {
                 let datagram = receiver.recv_raw().await?;
                 let payload_len = datagram.payload.len();
+                let from = datagram.from;
                 if cfg.log_raw {
                     let recv_ts = chrono::Utc::now();
                     let preview: String = datagram
@@ -150,15 +151,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     info!(
                         "recv {} bytes from {} at {} | preview: {}{}",
                         payload_len,
-                        datagram.from,
+                        from,
                         recv_ts.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                         preview,
                         if payload_len > 48 { " ..." } else { "" }
                     );
                 }
 
-                if let Some(decoded) = decode_udp_datagram(&datagram, &state, &cfg).await {
-                    match insert_shred(decoded, &datagram, &state, &cfg, &policy).await {
+                if let Some(decoded) = decode_udp_datagram(datagram, &state, &cfg).await {
+                    match insert_shred(decoded, from, &state, &cfg, &policy).await {
                         ShredInsertOutcome::Ready(ready) => {
                             handle_ready_batch(ready, &state, &cfg, &watch_cfg).await;
                         }

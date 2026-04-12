@@ -4,14 +4,12 @@ use std::{
     sync::Arc,
 };
 
-use solana_sdk::{
-    pubkey::Pubkey, signature::Signature,
-    transaction::VersionedTransaction,
-};
+use solana_sdk::{pubkey::Pubkey, signature::Signature, transaction::VersionedTransaction};
 use solana_vote_program::id as vote_program_id;
 
 const TOKEN_PROGRAM: Pubkey = solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-const TOKEN_2022_PROGRAM: Pubkey = solana_sdk::pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+const TOKEN_2022_PROGRAM: Pubkey =
+    solana_sdk::pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
 #[inline]
 fn is_token_program(pk: &Pubkey) -> bool {
@@ -21,8 +19,7 @@ const DEFAULT_PUMPFUN_PROGRAM_ID: &str = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uB
 const PUMPFUN_CREATE_DISC: [u8; 8] = [0x18, 0x1e, 0xc8, 0x28, 0x05, 0x1c, 0x07, 0x77];
 const PUMPFUN_CREATE_V2_DISC: [u8; 8] = [0xd6, 0x90, 0x4c, 0xec, 0x5f, 0x8b, 0x31, 0xb4];
 const PUMPFUN_BUY_DISC: [u8; 8] = [0x66, 0x06, 0x3d, 0x12, 0x01, 0xda, 0xeb, 0xea];
-const PUMPFUN_BUY_EXACT_SOL_IN_DISC: [u8; 8] =
-    [0x38, 0xfc, 0x74, 0x08, 0x9e, 0xdf, 0xcd, 0x5f];
+const PUMPFUN_BUY_EXACT_SOL_IN_DISC: [u8; 8] = [0x38, 0xfc, 0x74, 0x08, 0x9e, 0xdf, 0xcd, 0x5f];
 const PUMPFUN_SELL_DISC: [u8; 8] = [0x33, 0xe6, 0x85, 0xa4, 0x01, 0x7f, 0x83, 0xad];
 
 #[derive(Clone)]
@@ -163,7 +160,10 @@ pub fn detect_program_hit(
     let keys = tx.message.static_account_keys();
 
     if !cfg.fee_payers.is_empty() {
-        let fee_payer_matches = keys.first().map(|fp| cfg.fee_payers.contains(fp)).unwrap_or(false);
+        let fee_payer_matches = keys
+            .first()
+            .map(|fp| cfg.fee_payers.contains(fp))
+            .unwrap_or(false);
         if !fee_payer_matches {
             return None;
         }
@@ -193,13 +193,14 @@ pub fn detect_program_hit(
 
     Some(ProgramHit {
         signature: tx.signatures.first().cloned().unwrap_or_default(),
-        fee_payer: *keys.first().expect("valid transaction must have fee payer at account_keys[0]"),
+        fee_payer: *keys
+            .first()
+            .expect("valid transaction must have fee payer at account_keys[0]"),
         program_hit,
         authority_hit,
         mints: mint_accounts,
     })
 }
-
 
 pub fn first_signatures<'a, I>(txs: I, limit: usize, skip_vote_txs: bool) -> Vec<Signature>
 where
@@ -253,12 +254,11 @@ impl MintFinder for SplTokenMintFinder {
             let Some(tag) = ix.data.first() else {
                 continue;
             };
-            if matches!(tag, 0 | 7 | 14 | 20) {
-                if let Some(mint_idx) = ix.accounts.first() {
-                    if let Some(mint) = keys.get(*mint_idx as usize) {
-                        insert_mint(&mut mint_accounts, *mint, Some("spl-token"));
-                    }
-                }
+            if matches!(tag, 0 | 7 | 14 | 20)
+                && let Some(mint_idx) = ix.accounts.first()
+                && let Some(mint) = keys.get(*mint_idx as usize)
+            {
+                insert_mint(&mut mint_accounts, *mint, Some("spl-token"));
             }
         }
         mint_accounts.into_values().collect()
@@ -272,7 +272,9 @@ pub struct PumpfunAccountMintFinder {
 
 impl PumpfunAccountMintFinder {
     pub fn new(pumpfun_ids: Vec<Pubkey>) -> Self {
-        Self { pumpfun_ids: pumpfun_ids.into_iter().collect() }
+        Self {
+            pumpfun_ids: pumpfun_ids.into_iter().collect(),
+        }
     }
 }
 
@@ -294,9 +296,7 @@ impl MintFinder for PumpfunAccountMintFinder {
                 continue;
             }
             let kind = match ix.data.get(0..8) {
-                Some(bytes)
-                    if bytes == PUMPFUN_CREATE_V2_DISC || bytes == PUMPFUN_CREATE_DISC =>
-                {
+                Some(bytes) if bytes == PUMPFUN_CREATE_V2_DISC || bytes == PUMPFUN_CREATE_DISC => {
                     Some("pump:create")
                 }
                 Some(bytes) if bytes == PUMPFUN_BUY_DISC => Some("pump:buy"),
@@ -307,30 +307,27 @@ impl MintFinder for PumpfunAccountMintFinder {
 
             match kind {
                 Some("pump:create") => {
-                    if let Some(mint_idx) = ix.accounts.first() {
-                        if let Some(mint) = keys.get(*mint_idx as usize) {
-                            if !is_system_id(mint) {
-                                insert_mint(&mut mints, *mint, Some("pump:create"));
-                            }
-                        }
+                    if let Some(mint_idx) = ix.accounts.first()
+                        && let Some(mint) = keys.get(*mint_idx as usize)
+                        && !is_system_id(mint)
+                    {
+                        insert_mint(&mut mints, *mint, Some("pump:create"));
                     }
                 }
                 Some("pump:buy") | Some("pump:buy_exact") | Some("pump:sell") => {
-                    if let Some(mint_idx) = ix.accounts.get(2) {
-                        if let Some(mint) = keys.get(*mint_idx as usize) {
-                            if !is_system_id(mint) {
-                                insert_mint(&mut mints, *mint, kind);
-                            }
-                        }
+                    if let Some(mint_idx) = ix.accounts.get(2)
+                        && let Some(mint) = keys.get(*mint_idx as usize)
+                        && !is_system_id(mint)
+                    {
+                        insert_mint(&mut mints, *mint, kind);
                     }
                 }
                 _ => {
-                    if let Some(mint_idx) = ix.accounts.get(2) {
-                        if let Some(mint) = keys.get(*mint_idx as usize) {
-                            if !is_system_id(mint) {
-                                insert_mint(&mut mints, *mint, Some("pump:trade"));
-                            }
-                        }
+                    if let Some(mint_idx) = ix.accounts.get(2)
+                        && let Some(mint) = keys.get(*mint_idx as usize)
+                        && !is_system_id(mint)
+                    {
+                        insert_mint(&mut mints, *mint, Some("pump:trade"));
                     }
                 }
             }
@@ -363,7 +360,9 @@ pub struct PumpfunDetailer {
 
 impl PumpfunDetailer {
     pub fn new(pumpfun_ids: Vec<Pubkey>) -> Self {
-        Self { pumpfun_ids: pumpfun_ids.into_iter().collect() }
+        Self {
+            pumpfun_ids: pumpfun_ids.into_iter().collect(),
+        }
     }
 }
 
@@ -387,9 +386,7 @@ impl MintDetailer for PumpfunDetailer {
             let disc = ix.data.get(0..8);
             let is_create_v2 = disc == Some(&PUMPFUN_CREATE_V2_DISC);
             let kind = match disc {
-                Some(bytes)
-                    if bytes == PUMPFUN_CREATE_V2_DISC || bytes == PUMPFUN_CREATE_DISC =>
-                {
+                Some(bytes) if bytes == PUMPFUN_CREATE_V2_DISC || bytes == PUMPFUN_CREATE_DISC => {
                     Some("create")
                 }
                 Some(bytes) if bytes == PUMPFUN_BUY_DISC => Some("buy"),
@@ -442,14 +439,17 @@ impl MintDetailer for PumpfunDetailer {
             };
 
             let (creator, is_mayhem_mode, is_cashback_coin) = if is_create_v2 {
-                parse_create_v2_creator(&ix.data)
-                    .map_or((None, None, None), |(c, m, cb)| (Some(c), Some(m), Some(cb)))
+                parse_create_v2_creator(&ix.data).map_or((None, None, None), |(c, m, cb)| {
+                    (Some(c), Some(m), Some(cb))
+                })
             } else {
                 (None, None, None)
             };
 
             let token_program = ix.accounts.iter().find_map(|&idx| {
-                keys.get(idx as usize).filter(|pk| is_token_program(pk)).copied()
+                keys.get(idx as usize)
+                    .filter(|pk| is_token_program(pk))
+                    .copied()
             });
             let token_program = if token_program.is_none() && is_create_v2 {
                 Some(TOKEN_2022_PROGRAM)
@@ -471,11 +471,11 @@ impl MintDetailer for PumpfunDetailer {
                 is_cashback_coin,
                 token_program,
             });
-            if let Some(k) = action {
-                if entry.action.is_none() || entry.action == Some("create") {
-                    entry.action = Some(k);
-                    entry.label = label;
-                }
+            if let Some(k) = action
+                && (entry.action.is_none() || entry.action == Some("create"))
+            {
+                entry.action = Some(k);
+                entry.label = label;
             }
             if sol_amount.is_some() {
                 entry.sol_amount = sol_amount;
@@ -494,7 +494,7 @@ impl MintDetailer for PumpfunDetailer {
         }
 
         for m in mints {
-            if !out.contains_key(&m.mint) {
+            out.entry(m.mint).or_insert_with(|| {
                 let action = m.label.map(|l| {
                     let trimmed = l.trim_start_matches("pump:");
                     match trimmed {
@@ -503,7 +503,7 @@ impl MintDetailer for PumpfunDetailer {
                         other => other,
                     }
                 });
-                out.insert(m.mint, MintDetail {
+                MintDetail {
                     mint: m.mint,
                     label: m.label,
                     action,
@@ -516,8 +516,8 @@ impl MintDetailer for PumpfunDetailer {
                     is_mayhem_mode: None,
                     is_cashback_coin: None,
                     token_program: None,
-                });
-            }
+                }
+            });
         }
         out.into_values().collect()
     }
