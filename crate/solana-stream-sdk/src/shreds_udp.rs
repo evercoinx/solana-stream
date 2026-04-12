@@ -2450,9 +2450,15 @@ fn missing_ranges(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, sync::Arc};
+
     use solana_sdk::pubkey::Pubkey;
 
     use super::*;
+    use crate::txn::{
+        MintInfo, ProgramWatchConfig,
+        test_helpers::{NoopDetailer, make_tx},
+    };
 
     fn make_detail(
         mint: Pubkey,
@@ -2474,6 +2480,10 @@ mod tests {
             is_cashback_coin: None,
             token_program: None,
         }
+    }
+
+    fn default_state() -> ShredsUdpState {
+        ShredsUdpState::new(&ShredsUdpConfig::default())
     }
 
     #[test]
@@ -2525,5 +2535,360 @@ mod tests {
         assert_eq!(current.creator, Some(creator));
         assert_eq!(current.is_cashback_coin, Some(true));
         assert_eq!(current.is_mayhem_mode, Some(false));
+    }
+
+    #[test]
+    fn merge_buy_over_none_sets_action() {
+        let mint = Pubkey::new_from_array([10u8; 32]);
+        let mut current = make_detail(mint, None, None, None);
+        let incoming = make_detail(mint, Some("buy"), Some("pump:buy"), Some(100));
+
+        merge_mint_detail(&mut current, &incoming);
+
+        assert_eq!(current.action, Some("buy"));
+        assert_eq!(current.label, Some("pump:buy"));
+        assert_eq!(current.sol_amount, Some(100));
+    }
+
+    #[test]
+    fn merge_incoming_create_always_wins() {
+        let mint = Pubkey::new_from_array([11u8; 32]);
+        let mut current = make_detail(mint, Some("buy"), Some("pump:buy"), Some(50));
+        let incoming = make_detail(mint, Some("create"), Some("pump:create"), None);
+
+        merge_mint_detail(&mut current, &incoming);
+
+        assert_eq!(current.action, Some("create"));
+    }
+
+    #[test]
+    fn merge_create_then_buy_backfills_amounts() {
+        let mint = Pubkey::new_from_array([12u8; 32]);
+        let mut current = make_detail(mint, Some("create"), Some("pump:create"), None);
+        let incoming = MintDetail {
+            token_amount: Some(999),
+            ..make_detail(mint, Some("buy"), Some("pump:buy"), Some(300))
+        };
+
+        merge_mint_detail(&mut current, &incoming);
+
+        assert_eq!(current.action, Some("create"));
+        assert_eq!(current.sol_amount, Some(300));
+        assert_eq!(current.token_amount, Some(999));
+    }
+
+    #[test]
+    fn merge_backfills_name_symbol_uri() {
+        let mint = Pubkey::new_from_array([13u8; 32]);
+        let mut current = make_detail(mint, Some("create"), Some("pump:create"), None);
+        let incoming = MintDetail {
+            name: Some("Token".to_string()),
+            symbol: Some("TKN".to_string()),
+            uri: Some("https://example.com".to_string()),
+            ..make_detail(mint, Some("create"), Some("pump:create"), None)
+        };
+
+        merge_mint_detail(&mut current, &incoming);
+
+        assert_eq!(current.name.as_deref(), Some("Token"));
+        assert_eq!(current.symbol.as_deref(), Some("TKN"));
+        assert_eq!(current.uri.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn priority_buy_is_two() {
+        assert_eq!(detail_action_priority(Some("buy")), 2);
+    }
+
+    #[test]
+    fn priority_sell_is_two() {
+        assert_eq!(detail_action_priority(Some("sell")), 2);
+    }
+
+    #[test]
+    fn priority_create_is_one() {
+        assert_eq!(detail_action_priority(Some("create")), 1);
+    }
+
+    #[test]
+    fn priority_none_is_zero() {
+        assert_eq!(detail_action_priority(None), 0);
+    }
+
+    #[test]
+    fn priority_unknown_is_zero() {
+        assert_eq!(detail_action_priority(Some("transfer")), 0);
+    }
+
+    #[test]
+    fn consistent_num_data_single_value() {
+        let summary = CodingHeaderSummary {
+            parsed: 1,
+            invalid: 0,
+            num_data_shreds: vec![4],
+            num_coding_shreds: vec![4],
+            first_coding_indices: vec![0],
+            positions_preview: vec![0],
+        };
+        assert_eq!(summary.consistent_num_data(), Some(4));
+    }
+
+    #[test]
+    fn consistent_num_data_multiple_values() {
+        let summary = CodingHeaderSummary {
+            parsed: 2,
+            invalid: 0,
+            num_data_shreds: vec![4, 8],
+            num_coding_shreds: vec![4],
+            first_coding_indices: vec![0],
+            positions_preview: vec![],
+        };
+        assert_eq!(summary.consistent_num_data(), None);
+    }
+
+    #[test]
+    fn consistent_first_index_single_value() {
+        let summary = CodingHeaderSummary {
+            parsed: 1,
+            invalid: 0,
+            num_data_shreds: vec![4],
+            num_coding_shreds: vec![4],
+            first_coding_indices: vec![42],
+            positions_preview: vec![],
+        };
+        assert_eq!(summary.consistent_first_index(), Some(42));
+    }
+
+    #[test]
+    fn consistent_first_index_multiple_values() {
+        let summary = CodingHeaderSummary {
+            parsed: 2,
+            invalid: 0,
+            num_data_shreds: vec![4],
+            num_coding_shreds: vec![4],
+            first_coding_indices: vec![0, 4],
+            positions_preview: vec![],
+        };
+        assert_eq!(summary.consistent_first_index(), None);
+    }
+
+    #[test]
+    fn missing_ranges_none_required() {
+        let shreds: HashMap<u32, solana_ledger::shred::Shred> = HashMap::new();
+        let ranges = missing_ranges(0, None, &shreds);
+        assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn missing_ranges_all_present() {
+        let shreds: HashMap<u32, solana_ledger::shred::Shred> = HashMap::new();
+        let ranges = missing_ranges(0, Some(0), &shreds);
+        assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn missing_ranges_contiguous_gap() {
+        let shreds: HashMap<u32, solana_ledger::shred::Shred> = HashMap::new();
+        let ranges = missing_ranges(0, Some(4), &shreds);
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(ranges[0], (0, 3));
+    }
+
+    #[test]
+    fn config_default_matches_constants() {
+        let cfg = ShredsUdpConfig::default();
+        assert_eq!(cfg.bind_addr, DEFAULT_BIND_ADDR);
+        assert_eq!(cfg.rpc_endpoint, DEFAULT_RPC_ENDPOINT);
+        assert_eq!(cfg.completed_ttl, DEFAULT_COMPLETED_TTL);
+        assert_eq!(cfg.slot_window_max_future, DEFAULT_MAX_FUTURE_SLOT);
+        assert_eq!(cfg.strict_num_data, DEFAULT_STRICT_NUM_DATA);
+        assert_eq!(cfg.strict_num_coding, DEFAULT_STRICT_NUM_CODING);
+        assert_eq!(cfg.evict_cooldown, DEFAULT_EVICT_COOLDOWN);
+        assert!(cfg.strict_fec);
+        assert!(cfg.skip_vote_sigs);
+    }
+
+    #[test]
+    fn config_from_embedded_toml_applies_overrides() {
+        let toml = r#"
+bind_addr = "127.0.0.1:20001"
+rpc_endpoint = "http://localhost:8899"
+log_raw = true
+strict_fec = false
+strict_num_data = 16
+"#;
+        let cfg = ShredsUdpConfig::from_embedded(toml);
+        assert_eq!(cfg.bind_addr, "127.0.0.1:20001");
+        assert_eq!(cfg.rpc_endpoint, "http://localhost:8899");
+        assert!(cfg.log_raw);
+        assert!(!cfg.strict_fec);
+        assert_eq!(cfg.strict_num_data, 16);
+    }
+
+    #[test]
+    fn config_describe_contains_key_fields() {
+        let cfg = ShredsUdpConfig::default();
+        let desc = cfg.describe();
+        assert!(desc.contains("bind_addr"));
+        assert!(desc.contains("strict_fec"));
+        assert!(desc.contains(DEFAULT_BIND_ADDR));
+    }
+
+    #[test]
+    fn config_watch_config_uses_pumpfun_default_when_empty() {
+        let cfg = ShredsUdpConfig::default();
+        assert!(cfg.watch_program_ids.is_empty());
+        let watch = cfg.watch_config();
+        assert!(!watch.program_ids.is_empty());
+        let pumpfun: Pubkey = DEFAULT_WATCH_PROGRAM_ID.parse().unwrap();
+        assert!(watch.program_ids.contains(&pumpfun));
+    }
+
+    #[test]
+    fn state_mark_completed_round_trip() {
+        let state = default_state();
+        let key = FecKey { slot: 1, version: 0, fec_set: 0 };
+        state.mark_completed(key);
+        assert!(state.completed.contains_key(&key));
+    }
+
+    #[test]
+    fn state_mark_suppressed_round_trip() {
+        let state = default_state();
+        let key = FecKey { slot: 2, version: 0, fec_set: 0 };
+        state.mark_suppressed(key);
+        assert!(state.suppressed.contains_key(&key));
+    }
+
+    #[tokio::test]
+    async fn state_slot_broadcast_fires_on_new_slot() {
+        let state = default_state();
+        let mut rx = state.subscribe_slot_updates();
+
+        let old = state.latest_slot.fetch_max(100, std::sync::atomic::Ordering::Relaxed);
+        if 100 > old {
+            let _ = state.slot_updates.send(100);
+        }
+
+        let received = rx.try_recv().unwrap();
+        assert_eq!(received, 100);
+    }
+
+    #[test]
+    fn collect_empty_when_no_matching_txs() {
+        let prog = Pubkey::new_from_array([5u8; 32]);
+        let other_prog = Pubkey::new_from_array([6u8; 32]);
+        let watch_cfg = ProgramWatchConfig::new(vec![prog], vec![])
+            .with_detailers(vec![Arc::new(NoopDetailer)]);
+
+        let fee_payer = Pubkey::new_from_array([0u8; 32]);
+        let keys = vec![fee_payer, other_prog];
+        let ix = solana_sdk::message::compiled_instruction::CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
+        let tx = make_tx(keys, vec![ix]);
+
+        let events = collect_watch_events(1, &[&tx], &watch_cfg);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn collect_produces_event_for_matching_tx() {
+        use crate::txn::test_helpers::FixedMintFinder;
+
+        let prog = Pubkey::new_from_array([5u8; 32]);
+        let mint = Pubkey::new_from_array([0xaau8; 32]);
+
+        let watch_cfg = ProgramWatchConfig::new(vec![prog], vec![])
+            .with_mint_finder(Arc::new(FixedMintFinder {
+                mints: vec![MintInfo { mint, label: Some("test") }],
+            }))
+            .with_detailers(vec![Arc::new(NoopDetailer)]);
+
+        let fee_payer = Pubkey::new_from_array([0u8; 32]);
+        let keys = vec![fee_payer, prog];
+        let ix = solana_sdk::message::compiled_instruction::CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
+        let tx = make_tx(keys, vec![ix]);
+
+        let events = collect_watch_events(42, &[&tx], &watch_cfg);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].slot, 42);
+        assert!(events[0].hit.program_hit);
+    }
+
+    #[test]
+    fn collect_merges_details_from_detailers() {
+        use crate::txn::{MintDetail, MintDetailer};
+
+        let prog = Pubkey::new_from_array([5u8; 32]);
+        let mint = Pubkey::new_from_array([0xaau8; 32]);
+
+        struct FixedDetailer {
+            mint: Pubkey,
+        }
+
+        impl MintDetailer for FixedDetailer {
+            fn detail(
+                &self,
+                _tx: &solana_sdk::transaction::VersionedTransaction,
+                _cfg: &ProgramWatchConfig,
+                _mints: &[MintInfo],
+            ) -> Vec<MintDetail> {
+                vec![MintDetail {
+                    mint: self.mint,
+                    label: Some("test"),
+                    action: Some("buy"),
+                    sol_amount: Some(100),
+                    token_amount: None,
+                    name: None,
+                    symbol: None,
+                    uri: None,
+                    creator: None,
+                    is_mayhem_mode: None,
+                    is_cashback_coin: None,
+                    token_program: None,
+                }]
+            }
+        }
+
+        use crate::txn::{MintFinder, MintInfo};
+
+        struct FixedFinder {
+            mint: Pubkey,
+        }
+        impl MintFinder for FixedFinder {
+            fn find_mints(
+                &self,
+                _tx: &solana_sdk::transaction::VersionedTransaction,
+                _cfg: &ProgramWatchConfig,
+            ) -> Vec<MintInfo> {
+                vec![MintInfo { mint: self.mint, label: Some("test") }]
+            }
+        }
+
+        let watch_cfg = ProgramWatchConfig::new(vec![prog], vec![])
+            .with_mint_finder(Arc::new(FixedFinder { mint }))
+            .with_detailers(vec![Arc::new(FixedDetailer { mint })]);
+
+        let fee_payer = Pubkey::new_from_array([0u8; 32]);
+        let keys = vec![fee_payer, prog];
+        let ix = solana_sdk::message::compiled_instruction::CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
+        let tx = make_tx(keys, vec![ix]);
+
+        let events = collect_watch_events(10, &[&tx], &watch_cfg);
+        assert_eq!(events.len(), 1);
+        let detail = events[0].details.iter().find(|d| d.mint == mint).unwrap();
+        assert_eq!(detail.action, Some("buy"));
+        assert_eq!(detail.sol_amount, Some(100));
     }
 }
