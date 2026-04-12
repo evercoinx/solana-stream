@@ -4,7 +4,7 @@ version = "1.3.0"
 description = "Solana Shreds Client for Scale."
 authors = ["ELSOUL LABO B.V. <labo@elsoul.nl>"]
 homepage = "https://elsoul.nl/"
-edition = "2021"
+edition = "2024"
 
 [lib]
 crate-type = ["cdylib"]

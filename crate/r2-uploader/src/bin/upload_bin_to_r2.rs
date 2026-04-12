@@ -23,27 +23,17 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Upload compiled binary to Cloudflare R2
     Upload {
-        /// Name of the binary
         #[arg(long)]
         name: String,
-
-        /// Version of the binary (optional, reads from Cargo.toml if not provided)
         #[arg(long)]
         binary_version: Option<String>,
-
-        /// Custom file path to upload (optional)
         #[arg(long)]
         file_path: Option<String>,
-
-        /// Target directory (default: ./target/release)
         #[arg(long, default_value = "./target/release")]
         target_dir: String,
     },
-    /// Purge Cloudflare cache for specified URLs
     Purge {
-        /// URLs to purge from cache
         #[arg(short, long, value_delimiter = ',')]
         files: Vec<String>,
     },
@@ -52,24 +42,12 @@ enum Commands {
 /// Determines the appropriate content type based on file extension
 fn get_content_type(file_path: &Path) -> &'static str {
     match file_path.extension().and_then(|ext| ext.to_str()) {
-        Some("gz") => {
-            // Check if it's a .tar.gz file
-            if file_path
-                .file_stem()
-                .and_then(|stem| Path::new(stem).extension())
-                .and_then(|ext| ext.to_str())
-                == Some("tar")
-            {
-                "application/gzip"
-            } else {
-                "application/gzip"
-            }
-        }
+        Some("gz") => "application/gzip",
         Some("tar") => "application/x-tar",
         Some("zip") => "application/zip",
         Some("bz2") => "application/x-bzip2",
         Some("xz") => "application/x-xz",
-        _ => "application/x-elf", // Default for binary files
+        _ => "application/x-elf",
     }
 }
 
@@ -77,11 +55,8 @@ fn get_content_type(file_path: &Path) -> &'static str {
 fn find_binary_file(binary_name: &str, target_dir: &str) -> Option<PathBuf> {
     let base_path = PathBuf::from(target_dir);
 
-    // List of possible file patterns to check, in order of preference
     let patterns = vec![
-        // Exact binary name (original behavior)
         format!("{}", binary_name),
-        // Compressed archives with binary name
         format!("{}.tar.gz", binary_name),
         format!("{}.tar.bz2", binary_name),
         format!("{}.tar.xz", binary_name),
@@ -102,7 +77,6 @@ fn find_binary_file(binary_name: &str, target_dir: &str) -> Option<PathBuf> {
 
 /// Reads version from Cargo.toml
 fn read_version_from_cargo_toml(binary_name: &str) -> Result<String, String> {
-    // First try to read from project-specific Cargo.toml
     let project_cargo_path = format!("./{}/Cargo.toml", binary_name);
     let content = match fs::read_to_string(&project_cargo_path) {
         Ok(content) => {
@@ -111,7 +85,6 @@ fn read_version_from_cargo_toml(binary_name: &str) -> Result<String, String> {
         }
         Err(_) => {
             println!("📋 Project-specific Cargo.toml not found, trying workspace Cargo.toml");
-            // Fall back to workspace Cargo.toml
             match fs::read_to_string("Cargo.toml") {
                 Ok(content) => content,
                 Err(_) => return Err("Failed to read any Cargo.toml".to_string()),
@@ -119,11 +92,9 @@ fn read_version_from_cargo_toml(binary_name: &str) -> Result<String, String> {
         }
     };
 
-    // For project-specific Cargo.toml, look for version field
     for line in content.lines() {
         let line = line.trim();
 
-        // Check for project-specific version
         if line.starts_with("version") {
             return match line.split_once('=') {
                 Some((_, version)) => {
@@ -134,7 +105,6 @@ fn read_version_from_cargo_toml(binary_name: &str) -> Result<String, String> {
             };
         }
 
-        // Check for workspace package.version
         if line.starts_with("package.version") {
             return match line.split_once('=') {
                 Some((_, version)) => {
@@ -150,23 +120,12 @@ fn read_version_from_cargo_toml(binary_name: &str) -> Result<String, String> {
 }
 
 /// Uploads a compiled Rust binary to Cloudflare R2.
-///
-/// # Arguments
-///
-/// * `binary_name` - Name of the binary to upload to R2
-/// * `version` - Version string for the binary
-/// * `file_path` - Optional custom path to the binary file
-/// * `target_dir` - Directory to look for the binary if file_path not provided
-///
-/// # Returns
-/// true if upload succeeded, false otherwise
 pub async fn upload_compiled_binary_to_r2(
     binary_name: &str,
     version: &str,
     file_path: Option<&str>,
     target_dir: &str,
 ) -> bool {
-    // 1. Determine file path
     let binary_path = if let Some(path) = file_path {
         PathBuf::from(path)
     } else {
@@ -187,7 +146,6 @@ pub async fn upload_compiled_binary_to_r2(
         }
     };
 
-    // 2. Read binary file
     println!("🔍 Reading file from: {}", binary_path.display());
     let mut file = match File::open(&binary_path) {
         Ok(f) => f,
@@ -203,7 +161,6 @@ pub async fn upload_compiled_binary_to_r2(
         return false;
     }
 
-    // 3. Construct Cloudflare R2 upload URL
     let account_id = match env::var("CLOUDFLARE_ACCOUNT_ID") {
         Ok(val) => val,
         Err(_) => {
@@ -227,7 +184,6 @@ pub async fn upload_compiled_binary_to_r2(
     );
     println!("🔗 Upload URL: {}", url);
 
-    // 4. Setup headers
     let mut headers = reqwest::header::HeaderMap::new();
 
     if let Ok(token) = env::var("CLOUDFLARE_API_TOKEN") {
@@ -256,12 +212,10 @@ pub async fn upload_compiled_binary_to_r2(
         headers.insert("X-Auth-Key", api_key.parse().unwrap());
     }
 
-    // Determine and set appropriate content type based on file extension
     let content_type = get_content_type(&binary_path);
     headers.insert("Content-Type", content_type.parse().unwrap());
     println!("📄 Content-Type: {}", content_type);
 
-    // 5. Upload to versioned path
     println!(
         "📤 Uploading {} to R2 as {}",
         binary_path.display(),
@@ -294,7 +248,6 @@ pub async fn upload_compiled_binary_to_r2(
 
     println!("✅ Successfully uploaded to R2: {}", object_key);
 
-    // 6. Upload to latest path
     let latest_url = format!(
         "https://api.cloudflare.com/client/v4/accounts/{}/r2/buckets/{}/objects/{}",
         account_id, bucket_name, latest_object_key
@@ -338,7 +291,6 @@ pub async fn upload_compiled_binary_to_r2(
 async fn main() {
     dotenv::dotenv().ok();
 
-    // Parse command line arguments
     let cli = Cli::parse();
 
     match cli.command {
@@ -348,7 +300,6 @@ async fn main() {
             file_path,
             target_dir,
         } => {
-            // Get version from CLI args or Cargo.toml
             let version = match binary_version {
                 Some(v) => v,
                 None => {

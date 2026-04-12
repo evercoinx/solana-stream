@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v5
+        with:
+          path: ~/.rustup
+          key: rustup-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            rustup-${{ runner.os }}-
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
+
+      - name: Check formatting
+        run: make format-check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    needs: format
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          shared-key: ci-lint
+
+      - name: Lint
+        run: make lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    needs: format
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          shared-key: ci-test
+
+      - name: Test
+        run: make test
+
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    needs: format
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/rust-setup
+        with:
+          shared-key: ci-build
+
+      - name: Build release
+        run: make build-release

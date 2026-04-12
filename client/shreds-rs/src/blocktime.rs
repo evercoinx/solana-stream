@@ -1,9 +1,14 @@
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
 use chrono::{DateTime, LocalResult, TimeZone, Utc};
 use futures::future::join_all;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use tokio::sync::Mutex;
+
+type TransactionsBySlot = Arc<Mutex<HashMap<u64, Vec<(String, DateTime<Utc>)>>>>;
 
 #[derive(Clone)]
 pub struct BlockTimeCache {
@@ -55,10 +60,10 @@ impl BlockTimeCache {
             let mut cache = self.cache.lock().await;
             if let Some(time) = block_time {
                 cache.insert(slot, time);
-                if cache.len() > 20 {
-                    if let Some(oldest_slot) = cache.keys().next().cloned() {
-                        cache.remove(&oldest_slot);
-                    }
+                if cache.len() > 20
+                    && let Some(oldest_slot) = cache.keys().next().cloned()
+                {
+                    cache.remove(&oldest_slot);
                 }
             }
         }
@@ -70,10 +75,7 @@ impl BlockTimeCache {
     }
 }
 
-pub async fn prepare_log_message(
-    slot: u64,
-    transactions_by_slot: &Arc<Mutex<HashMap<u64, Vec<(String, DateTime<Utc>)>>>>,
-) {
+pub async fn prepare_log_message(slot: u64, transactions_by_slot: &TransactionsBySlot) {
     let received_time = Utc::now();
     transactions_by_slot
         .lock()
@@ -85,7 +87,7 @@ pub async fn prepare_log_message(
 
 pub async fn latency_monitor_task(
     block_time_cache: BlockTimeCache,
-    transactions_by_slot: Arc<Mutex<HashMap<u64, Vec<(String, DateTime<Utc>)>>>>,
+    transactions_by_slot: TransactionsBySlot,
 ) {
     const MAX_LATENCIES: usize = 420;
     let mut latency_buffer = Vec::new();

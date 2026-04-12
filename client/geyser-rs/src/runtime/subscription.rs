@@ -1,10 +1,11 @@
-use crate::utils::config::{commitment_from_str, Config};
 use solana_stream_sdk::{
     GeyserSubscribeRequest, GeyserSubscribeRequestFilterAccounts,
     GeyserSubscribeRequestFilterBlocks, GeyserSubscribeRequestFilterBlocksMeta,
     GeyserSubscribeRequestFilterEntry, GeyserSubscribeRequestFilterSlots,
     GeyserSubscribeRequestFilterTransactions,
 };
+
+use crate::utils::config::{Config, commitment_from_str};
 
 pub fn build_subscribe_request(config: &Config) -> GeyserSubscribeRequest {
     GeyserSubscribeRequest {

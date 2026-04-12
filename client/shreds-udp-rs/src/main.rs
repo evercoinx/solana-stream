@@ -1,15 +1,15 @@
+use std::sync::Arc;
+
 use dotenvy::dotenv;
-use env_logger;
 use log::{error, info};
 use solana_stream_sdk::{
-    shreds_udp::{
-        collect_watch_events, decode_udp_datagram, deshred_shreds_to_entries, insert_shred,
-        latency_monitor_task, DeshredPolicy, ShredInsertOutcome, ShredReadyBatch, ShredSource,
-        ShredsUdpConfig, ShredsUdpState, WatchEvent, log_watch_events,
-    },
     UdpShredReceiver,
+    shreds_udp::{
+        DeshredPolicy, ShredInsertOutcome, ShredReadyBatch, ShredSource, ShredsUdpConfig,
+        ShredsUdpState, WatchEvent, collect_watch_events, decode_udp_datagram,
+        deshred_shreds_to_entries, insert_shred, latency_monitor_task, log_watch_events,
+    },
 };
-use std::sync::Arc;
 use tokio::signal;
 
 const EMBEDDED_CONFIG: &str = include_str!("../settings.jsonc");
@@ -33,15 +33,9 @@ async fn handle_ready_batch(
 
             // Default logging. This is the first sink; swap or extend with
             // custom logic below if you need additional actions.
-            log_watch_events(
-                key.slot,
-                &txs,
-                watch_cfg.as_ref(),
-                cfg.log_watch_hits,
-            );
+            log_watch_events(key.slot, &txs, watch_cfg.as_ref(), cfg.log_watch_hits);
             // Structured hits for custom hooks; use this to attach your own side-effects.
-            let events =
-                collect_watch_events(key.slot, &txs, watch_cfg.as_ref());
+            let events = collect_watch_events(key.slot, &txs, watch_cfg.as_ref());
             maybe_custom_watch_hook(&events);
 
             if cfg.log_entries {
@@ -85,7 +79,7 @@ fn maybe_custom_watch_hook(events: &[WatchEvent]) {
     }
 
     for event in events {
-    // This is the second “sink” point: structured hits. Use it to send alerts/txs/etc.
+        // This is the second “sink” point: structured hits. Use it to send alerts/txs/etc.
         for detail in &event.details {
             info!(
                 "[custom hook] slot {} | sig {} | mint {} | action {:?} | sol_amount {:?} | token_amount {:?}",
@@ -111,7 +105,7 @@ fn describe_status(st: &solana_stream_sdk::shreds_udp::BatchStatus) -> String {
 async fn shutdown_signal() {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         let mut term = signal(SignalKind::terminate()).expect("create SIGTERM listener");
         let mut hup = signal(SignalKind::hangup()).expect("create SIGHUP listener");
         tokio::select! {
@@ -152,7 +146,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         state.block_time_cache(),
         state.transactions_by_slot(),
     ) {
-        Some(tokio::spawn(async move { latency_monitor_task(cache, txs).await }))
+        Some(tokio::spawn(async move {
+            latency_monitor_task(cache, txs).await
+        }))
     } else {
         None
     };
@@ -173,6 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 };
 
                 let payload_len = datagram.payload.len();
+                let from = datagram.from;
                 if cfg.log_raw {
                     let recv_ts = chrono::Utc::now();
                     let preview: String = datagram
@@ -185,26 +182,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     info!(
                         "recv {} bytes from {} at {} | preview: {}{}",
                         payload_len,
-                        datagram.from,
+                        from,
                         recv_ts.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                         preview,
                         if payload_len > 48 { " ..." } else { "" }
                     );
                 }
 
-                if let Some(decoded) = decode_udp_datagram(&datagram, &state, &cfg).await {
-                    match insert_shred(decoded, &datagram, &state, &cfg, &policy).await {
+                if let Some(decoded) = decode_udp_datagram(datagram, &state, &cfg).await {
+                    match insert_shred(decoded, from, &state, &cfg, &policy).await {
                         ShredInsertOutcome::Ready(ready) => {
-                            if cfg.log_deshred_attempts {
-                                if let Some(st) = &ready.status {
-                                    info!(
-                                        "Deshred attempt: slot {} | ver {} | fec_set {} | status {}",
-                                        ready.key.slot,
-                                        ready.key.version,
-                                        ready.key.fec_set,
-                                        describe_status(st)
-                                    );
-                                }
+                            if cfg.log_deshred_attempts
+                                && let Some(st) = &ready.status
+                            {
+                                info!(
+                                    "Deshred attempt: slot {} | ver {} | fec_set {} | status {}",
+                                    ready.key.slot,
+                                    ready.key.version,
+                                    ready.key.fec_set,
+                                    describe_status(st)
+                                );
                             }
                             handle_ready_batch(ready, &state, &cfg, &watch_cfg).await;
                         }

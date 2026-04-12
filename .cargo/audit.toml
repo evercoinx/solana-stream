@@ -1,0 +1,14 @@
+[advisories]
+ignore = [
+    "RUSTSEC-2021-0141", # dotenv v0.15: unmaintained; used directly — migrate to dotenvy (already in workspace.dependencies)
+    "RUSTSEC-2022-0093", # ed25519-dalek v1: vulnerability; transitive via agave-precompiles → Agave
+    "RUSTSEC-2024-0344", # curve25519-dalek v3: unsound; transitive via ed25519-dalek v1 → agave-precompiles → Agave
+    "RUSTSEC-2024-0384", # instant v0.1: unmaintained; transitive via backoff / parking_lot 0.11 → Agave
+    "RUSTSEC-2024-0388", # derivative v2: unmaintained; transitive via ark-ec → ark-bn254 → agave-syscalls
+    "RUSTSEC-2024-0436", # paste v1: unmaintained; transitive via ark-ff → ark-bn254 → agave-syscalls
+    "RUSTSEC-2025-0012", # backoff v0.4: unmaintained; transitive via solana-storage-bigtable
+    "RUSTSEC-2025-0134", # rustls-pemfile v1: unmaintained; transitive via reqwest 0.11 → goauth → solana-storage-bigtable
+    "RUSTSEC-2025-0141", # bincode v1: unmaintained; Solana wire format, no viable drop-in; Agave still pulls v1 transitively
+    "RUSTSEC-2026-0009", # time v0.3: DoS via stack exhaustion; transitive via x509-parser → solana-tls-utils → Agave; fix requires Agave SDK upgrade
+    "RUSTSEC-2026-0097", # rand v0.7/v0.8: unsound with custom logger; our direct dep is v0.9 (unaffected); fix requires Agave SDK upgrade
+]

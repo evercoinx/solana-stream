@@ -5,12 +5,12 @@ use std::collections::HashMap;
 use tonic::transport::Channel;
 
 use crate::{
-    shredstream_proto::{
-        shredstream_proxy_client::ShredstreamProxyClient, CommitmentLevel, SubscribeEntriesRequest,
-        SubscribeRequestFilterAccounts, SubscribeRequestFilterSlots,
-        SubscribeRequestFilterTransactions,
-    },
     Result, SolanaStreamError,
+    shredstream_proto::{
+        CommitmentLevel, SubscribeEntriesRequest, SubscribeRequestFilterAccounts,
+        SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions,
+        shredstream_proxy_client::ShredstreamProxyClient,
+    },
 };
 
 /// A convenient wrapper around the Shredstream client
@@ -175,5 +175,61 @@ impl ShredstreamClient {
             slots: HashMap::new(),
             commitment: Some(CommitmentLevel::Processed as i32),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_for_account_populates_filter() {
+        let account = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
+        let req = ShredstreamClient::create_entries_request_for_account(
+            account,
+            Some(CommitmentLevel::Confirmed),
+        );
+
+        let filter = req.accounts.get("").unwrap();
+        assert!(filter.account.contains(&account.to_owned()));
+        assert_eq!(req.commitment, Some(CommitmentLevel::Confirmed as i32));
+        let slot_filter = req.slots.get("").unwrap();
+        assert_eq!(slot_filter.filter_by_commitment, Some(true));
+        assert_eq!(slot_filter.interslot_updates, Some(false));
+    }
+
+    #[test]
+    fn request_for_account_defaults_to_processed() {
+        let req = ShredstreamClient::create_entries_request_for_account(
+            "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+            None,
+        );
+        assert_eq!(req.commitment, Some(CommitmentLevel::Processed as i32));
+    }
+
+    #[test]
+    fn request_for_accounts_multi_fields() {
+        let accs = vec!["acc1".to_owned(), "acc2".to_owned()];
+        let owners = vec!["owner1".to_owned()];
+        let req = ShredstreamClient::create_entries_request_for_accounts(
+            accs.clone(),
+            owners.clone(),
+            vec![],
+            Some(CommitmentLevel::Finalized),
+        );
+
+        let filter = req.accounts.get("").unwrap();
+        assert_eq!(filter.account, accs);
+        assert_eq!(filter.owner, owners);
+        assert_eq!(req.commitment, Some(CommitmentLevel::Finalized as i32));
+    }
+
+    #[test]
+    fn empty_request_has_empty_maps_and_processed() {
+        let req = ShredstreamClient::create_empty_entries_request();
+        assert!(req.accounts.is_empty());
+        assert!(req.transactions.is_empty());
+        assert!(req.slots.is_empty());
+        assert_eq!(req.commitment, Some(CommitmentLevel::Processed as i32));
     }
 }

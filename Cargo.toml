@@ -20,7 +20,7 @@ version = "1.8.0"
 description = ""
 authors = ["ELSOUL LABO B.V. <labo@elsoul.nl>"]
 homepage = "https://elsoul.nl/"
-edition = "2021"
+edition = "2024"
 
 [profile.release]
 # thin has minimal overhead vs none (default): https://blog.llvm.org/2016/06/thinlto-scalable-and-incremental-lto.html

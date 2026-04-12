@@ -1,0 +1,35 @@
+name: Rust setup
+description: Install system dependencies and set up Rust toolchain
+
+inputs:
+  shared-key:
+    description: "Swatinem/rust-cache shared key"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler libclang-18-dev libudev-dev pkg-config
+        echo "PROTOC=/usr/bin/protoc" >> "$GITHUB_ENV"
+        echo "LIBCLANG_PATH=/usr/lib/llvm-18/lib" >> "$GITHUB_ENV"
+
+    - name: Cache Rust toolchain
+      uses: actions/cache@v5
+      with:
+        path: ~/.rustup
+        key: rustup-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+        restore-keys: |
+          rustup-${{ runner.os }}-
+
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        rustflags: ""
+        cache: false
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.shared-key }}
