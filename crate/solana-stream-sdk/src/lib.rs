@@ -11,7 +11,6 @@ pub mod txn;
 pub use yellowstone_grpc_client;
 pub use yellowstone_grpc_proto;
 
-// Internal protobuf modules
 pub mod shared {
     tonic::include_proto!("shared");
 }
@@ -20,25 +19,16 @@ pub mod shredstream_proto {
     tonic::include_proto!("shredstream");
 }
 
-// Re-export commonly used types for convenience
-// Re-export error types
 pub use error::SolanaStreamError;
-// Re-export shredstream client
-pub use shredstream::ShredstreamClient;
-// Re-export UDP receiver
 pub use shreds_udp::{UdpDatagram, UdpShredReceiver, deshred_shreds_to_entries};
-
-// Shredstream protobuf exports
+pub use shredstream::ShredstreamClient;
 pub use shredstream_proto::{
     CommitmentLevel, SubscribeEntriesRequest, SubscribeRequestFilterAccounts,
     SubscribeRequestFilterAccountsFilter, SubscribeRequestFilterAccountsFilterLamports,
     SubscribeRequestFilterAccountsFilterMemcmp, SubscribeRequestFilterSlots,
     SubscribeRequestFilterTransactions,
 };
-
 pub use yellowstone_grpc_client::{GeyserGrpcClient, GeyserGrpcClientError, Interceptor};
-
-// Geyser protobuf exports with clear prefixes
 pub use yellowstone_grpc_proto::{
     geyser::{
         SlotStatus as GeyserSlotStatus, SubscribeUpdateBlock as GeyserUpdateBlock,

@@ -1,15 +1,16 @@
+use std::sync::Arc;
+
 use dotenvy::dotenv;
 use log::{error, info};
 use solana_stream_sdk::{
-    shreds_udp::{
-        collect_watch_events, decode_udp_datagram, deshred_shreds_to_entries, insert_shred,
-        DeshredPolicy, ShredInsertOutcome, ShredReadyBatch, ShredSource, ShredsUdpConfig,
-        ShredsUdpState,
-    },
-    txn::{first_signatures, parse_pubkeys, ProgramWatchConfig, SplTokenMintFinder},
     UdpShredReceiver,
+    shreds_udp::{
+        DeshredPolicy, ShredInsertOutcome, ShredReadyBatch, ShredSource, ShredsUdpConfig,
+        ShredsUdpState, collect_watch_events, decode_udp_datagram, deshred_shreds_to_entries,
+        insert_shred,
+    },
+    txn::{ProgramWatchConfig, SplTokenMintFinder, first_signatures, parse_pubkeys},
 };
-use std::sync::Arc;
 use tokio::signal;
 
 const EMBEDDED_CONFIG: &str = include_str!("../../settings.jsonc");
@@ -17,7 +18,7 @@ const EMBEDDED_CONFIG: &str = include_str!("../../settings.jsonc");
 async fn shutdown_signal() {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         let mut term = signal(SignalKind::terminate()).expect("create SIGTERM listener");
         let mut hup = signal(SignalKind::hangup()).expect("create SIGHUP listener");
         tokio::select! {
@@ -108,7 +109,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut receiver = UdpShredReceiver::bind(&cfg.bind_addr, None).await?;
     let local_addr = receiver.local_addr()?;
     info!("Generic UDP logger listening on {}", local_addr);
-    info!("Set GENERIC_WATCH_PROGRAM_IDS / GENERIC_WATCH_AUTHORITIES to watch specific programs; defaults to none.");
+    info!(
+        "Set GENERIC_WATCH_PROGRAM_IDS / GENERIC_WATCH_AUTHORITIES to watch specific programs; defaults to none."
+    );
 
     let policy = DeshredPolicy {
         require_code_match: cfg.require_code_match,

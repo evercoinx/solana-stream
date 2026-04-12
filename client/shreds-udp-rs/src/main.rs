@@ -1,14 +1,15 @@
+use std::sync::Arc;
+
 use dotenvy::dotenv;
 use log::{error, info};
 use solana_stream_sdk::{
-    shreds_udp::{
-        collect_watch_events, decode_udp_datagram, deshred_shreds_to_entries, insert_shred,
-        latency_monitor_task, log_watch_events, DeshredPolicy, ShredInsertOutcome, ShredReadyBatch,
-        ShredSource, ShredsUdpConfig, ShredsUdpState, WatchEvent,
-    },
     UdpShredReceiver,
+    shreds_udp::{
+        DeshredPolicy, ShredInsertOutcome, ShredReadyBatch, ShredSource, ShredsUdpConfig,
+        ShredsUdpState, WatchEvent, collect_watch_events, decode_udp_datagram,
+        deshred_shreds_to_entries, insert_shred, latency_monitor_task, log_watch_events,
+    },
 };
-use std::sync::Arc;
 use tokio::signal;
 
 const EMBEDDED_CONFIG: &str = include_str!("../settings.jsonc");
@@ -104,7 +105,7 @@ fn describe_status(st: &solana_stream_sdk::shreds_udp::BatchStatus) -> String {
 async fn shutdown_signal() {
     #[cfg(unix)]
     {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         let mut term = signal(SignalKind::terminate()).expect("create SIGTERM listener");
         let mut hup = signal(SignalKind::hangup()).expect("create SIGHUP listener");
         tokio::select! {
@@ -191,16 +192,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(decoded) = decode_udp_datagram(datagram, &state, &cfg).await {
                     match insert_shred(decoded, from, &state, &cfg, &policy).await {
                         ShredInsertOutcome::Ready(ready) => {
-                            if cfg.log_deshred_attempts {
-                                if let Some(st) = &ready.status {
-                                    info!(
-                                        "Deshred attempt: slot {} | ver {} | fec_set {} | status {}",
-                                        ready.key.slot,
-                                        ready.key.version,
-                                        ready.key.fec_set,
-                                        describe_status(st)
-                                    );
-                                }
+                            if cfg.log_deshred_attempts
+                                && let Some(st) = &ready.status
+                            {
+                                info!(
+                                    "Deshred attempt: slot {} | ver {} | fec_set {} | status {}",
+                                    ready.key.slot,
+                                    ready.key.version,
+                                    ready.key.fec_set,
+                                    describe_status(st)
+                                );
                             }
                             handle_ready_batch(ready, &state, &cfg, &watch_cfg).await;
                         }

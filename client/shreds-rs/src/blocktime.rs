@@ -1,8 +1,11 @@
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
 use chrono::{DateTime, LocalResult, TimeZone, Utc};
 use futures::future::join_all;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 type TransactionsBySlot = Arc<Mutex<HashMap<u64, Vec<(String, DateTime<Utc>)>>>>;
@@ -57,10 +60,10 @@ impl BlockTimeCache {
             let mut cache = self.cache.lock().await;
             if let Some(time) = block_time {
                 cache.insert(slot, time);
-                if cache.len() > 20 {
-                    if let Some(oldest_slot) = cache.keys().next().cloned() {
-                        cache.remove(&oldest_slot);
-                    }
+                if cache.len() > 20
+                    && let Some(oldest_slot) = cache.keys().next().cloned()
+                {
+                    cache.remove(&oldest_slot);
                 }
             }
         }

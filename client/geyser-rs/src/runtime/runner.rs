@@ -1,14 +1,18 @@
-use backoff::backoff::Backoff;
-use backoff::{future::retry, ExponentialBackoff};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
+
+use backoff::{ExponentialBackoff, backoff::Backoff, future::retry};
 use futures::{SinkExt, StreamExt};
 use log::{error, info, warn};
-use solana_stream_sdk::yellowstone_grpc_proto::geyser::SubscribeRequestPing;
 use solana_stream_sdk::{
     GeyserGrpcClient, GeyserSubscribeRequest, GeyserSubscribeUpdate, GeyserUpdateOneof,
+    yellowstone_grpc_proto::geyser::SubscribeRequestPing,
 };
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tonic::transport::ClientTlsConfig;
 
