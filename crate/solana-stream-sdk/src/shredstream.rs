@@ -192,10 +192,7 @@ mod tests {
 
         let filter = req.accounts.get("").unwrap();
         assert!(filter.account.contains(&account.to_owned()));
-        assert_eq!(
-            req.commitment,
-            Some(CommitmentLevel::Confirmed as i32)
-        );
+        assert_eq!(req.commitment, Some(CommitmentLevel::Confirmed as i32));
         let slot_filter = req.slots.get("").unwrap();
         assert_eq!(slot_filter.filter_by_commitment, Some(true));
         assert_eq!(slot_filter.interslot_updates, Some(false));
