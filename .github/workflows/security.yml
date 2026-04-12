@@ -1,4 +1,4 @@
-name: Security Audit
+name: Security
 
 on:
   push:
@@ -7,14 +7,14 @@ on:
       - Cargo.toml
       - Cargo.lock
       - .cargo/audit.toml
-      - .github/workflows/audit.yml
+      - .github/workflows/security.yml
   pull_request:
     branches: [main]
     paths:
       - Cargo.toml
       - Cargo.lock
       - .cargo/audit.toml
-      - .github/workflows/audit.yml
+      - .github/workflows/security.yml
   schedule:
     - cron: "0 6 * * *"
   workflow_dispatch:
