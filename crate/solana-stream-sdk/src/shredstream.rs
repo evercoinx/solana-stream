@@ -5,12 +5,12 @@ use std::collections::HashMap;
 use tonic::transport::Channel;
 
 use crate::{
-    shredstream_proto::{
-        shredstream_proxy_client::ShredstreamProxyClient, CommitmentLevel, SubscribeEntriesRequest,
-        SubscribeRequestFilterAccounts, SubscribeRequestFilterSlots,
-        SubscribeRequestFilterTransactions,
-    },
     Result, SolanaStreamError,
+    shredstream_proto::{
+        CommitmentLevel, SubscribeEntriesRequest, SubscribeRequestFilterAccounts,
+        SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions,
+        shredstream_proxy_client::ShredstreamProxyClient,
+    },
 };
 
 /// A convenient wrapper around the Shredstream client

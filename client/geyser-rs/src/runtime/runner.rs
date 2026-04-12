@@ -48,8 +48,8 @@ pub async fn run_geyser_stream(
                                 builder = builder.x_token(Some(token))?;
                             }
                             if grpc_endpoint.starts_with("https://") {
-                                builder =
-                                    builder.tls_config(ClientTlsConfig::new().with_native_roots())?;
+                                builder = builder
+                                    .tls_config(ClientTlsConfig::new().with_native_roots())?;
                             }
                             builder.connect().await.map_err(backoff::Error::transient)
                         }

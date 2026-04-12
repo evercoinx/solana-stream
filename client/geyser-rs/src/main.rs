@@ -2,16 +2,12 @@ use crate::handlers::processor::process_updates;
 use crate::runtime::runner::run_geyser_stream;
 use crate::runtime::settings::Settings;
 use crate::runtime::subscription::build_subscribe_request;
-use crate::utils::blocktime::{
-    create_transactions_by_slot, latency_monitor_task, BlockTimeCache,
-};
+use crate::utils::blocktime::{create_transactions_by_slot, latency_monitor_task, BlockTimeCache};
 use crate::utils::config::Config;
 use dotenv::dotenv;
-use env_logger;
-use serde_jsonc;
 use solana_stream_sdk::GeyserSubscribeUpdate;
-use std::{fs, sync::Arc};
 use std::sync::atomic::AtomicU64;
+use std::{fs, sync::Arc};
 use tokio::sync::mpsc;
 
 mod handlers;
@@ -44,7 +40,6 @@ async fn main() -> Result<(), anyhow::Error> {
     };
 
     let processor_handle = {
-        // Add your detection/trade logic in src/handlers/processor.rs.
         let transactions_by_slot = transactions_by_slot.clone();
         tokio::spawn(async move {
             process_updates(updates_rx, transactions_by_slot).await;
