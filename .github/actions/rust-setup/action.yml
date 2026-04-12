@@ -13,8 +13,9 @@ runs:
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y protobuf-compiler libudev-dev pkg-config
+        sudo apt-get install -y protobuf-compiler libclang-18-dev libudev-dev pkg-config
         echo "PROTOC=/usr/bin/protoc" >> "$GITHUB_ENV"
+        echo "LIBCLANG_PATH=/usr/lib/llvm-18/lib" >> "$GITHUB_ENV"
 
     - name: Cache Rust toolchain
       uses: actions/cache@v5
