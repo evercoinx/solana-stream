@@ -1,9 +1,9 @@
 use crate::{
-    txn::{
-        default_token_program_ids, detect_program_hit, first_signatures, parse_pubkeys, MintDetail,
-        ProgramHit, ProgramWatchConfig,
-    },
     Result, SolanaStreamError,
+    txn::{
+        MintDetail, ProgramHit, ProgramWatchConfig, default_token_program_ids, detect_program_hit,
+        first_signatures, parse_pubkeys,
+    },
 };
 use chrono::{DateTime, LocalResult, TimeZone, Utc};
 use dashmap::DashMap;
@@ -11,7 +11,7 @@ use futures::future::join_all;
 use log::{debug, error, info, warn};
 use serde::Deserialize;
 use solana_ledger::shred::{
-    Shred, Shredder, MAX_CODE_SHREDS_PER_SLOT, MAX_DATA_SHREDS_PER_SLOT, SIZE_OF_NONCE,
+    MAX_CODE_SHREDS_PER_SLOT, MAX_DATA_SHREDS_PER_SLOT, SIZE_OF_NONCE, Shred, Shredder,
 };
 use solana_packet::PACKET_DATA_SIZE;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
@@ -20,11 +20,14 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     env, fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
     sync::Arc,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, Instant},
 };
-use tokio::{net::UdpSocket, sync::{Mutex, broadcast}};
+use tokio::{
+    net::UdpSocket,
+    sync::{Mutex, broadcast},
+};
 
 const COMMON_HEADER_LEN: usize = 83;
 const CODING_HEADER_LEN: usize = 6;
@@ -64,36 +67,38 @@ pub struct UdpShredReceiver {
 
 impl UdpShredReceiver {
     /// Bind to a local address and prepare a UDP receiver.
-    ///
-    /// `bind_addr` is the local `ip:port` where shreds will be sent.
-    /// `max_datagram_size` allows overriding the receive buffer size; defaults to 64 KiB.
     pub async fn bind(
         bind_addr: impl AsRef<str>,
         max_datagram_size: Option<usize>,
     ) -> Result<Self> {
-        let addr: std::net::SocketAddr = bind_addr.as_ref().parse()
+        let addr: std::net::SocketAddr = bind_addr
+            .as_ref()
+            .parse()
             .map_err(|e| SolanaStreamError::Configuration(format!("Invalid bind address: {e}")))?;
-        
+
         let sock = socket2::Socket::new(
             socket2::Domain::for_address(addr),
             socket2::Type::DGRAM,
             Some(socket2::Protocol::UDP),
         )?;
-        
+
         let target_size = 8 * 1024 * 1024;
         if let Err(e) = sock.set_recv_buffer_size(target_size) {
             warn!("Failed to set SO_RCVBUF to {} bytes: {}", target_size, e);
         }
-        
+
         if let Ok(actual_size) = sock.recv_buffer_size() {
-            info!("UDP socket receive buffer size: {} bytes (requested: {})", actual_size, target_size);
+            info!(
+                "UDP socket receive buffer size: {} bytes (requested: {})",
+                actual_size, target_size
+            );
         }
-        
+
         sock.set_nonblocking(true)?;
         sock.bind(&addr.into())?;
         let std_socket: std::net::UdpSocket = sock.into();
         let socket = UdpSocket::from_std(std_socket)?;
-        
+
         let size = max_datagram_size
             .unwrap_or(DEFAULT_MAX_DATAGRAM_SIZE)
             .max(2048);
@@ -397,13 +402,13 @@ impl ShredsUdpConfig {
         let (config_path, searched_paths) =
             resolve_config_path(env_config.as_deref(), cwd.as_deref(), exe_dir.as_deref());
 
-        if let Some(raw) = env_config.as_ref() {
-            if !Path::new(raw).exists() {
-                warn!(
-                    "Shreds udp config {} not found; falling back to search paths",
-                    raw
-                );
-            }
+        if let Some(raw) = env_config.as_ref()
+            && !Path::new(raw).exists()
+        {
+            warn!(
+                "Shreds udp config {} not found; falling back to search paths",
+                raw
+            );
         }
 
         if let Some(path) = config_path {
@@ -456,14 +461,17 @@ impl ShredsUdpConfig {
 
     /// Build a watch config without populating pump.fun defaults when the lists are empty.
     pub fn watch_config_no_defaults(&self) -> ProgramWatchConfig {
-        ProgramWatchConfig::new(self.watch_program_ids.clone(), self.watch_authorities.clone())
-            .with_fee_payers(self.fee_payers.clone())
-            .with_token_program_ids(if self.token_program_ids.is_empty() {
-                default_token_program_ids()
-            } else {
-                self.token_program_ids.clone()
-            })
-            .with_skip_vote_txs(self.skip_vote_sigs)
+        ProgramWatchConfig::new(
+            self.watch_program_ids.clone(),
+            self.watch_authorities.clone(),
+        )
+        .with_fee_payers(self.fee_payers.clone())
+        .with_token_program_ids(if self.token_program_ids.is_empty() {
+            default_token_program_ids()
+        } else {
+            self.token_program_ids.clone()
+        })
+        .with_skip_vote_txs(self.skip_vote_sigs)
     }
 
     pub fn describe(&self) -> String {
@@ -491,11 +499,9 @@ impl ShredsUdpConfig {
 impl ShredsUdpState {
     pub fn new(cfg: &ShredsUdpConfig) -> Self {
         let (slot_tx, _) = broadcast::channel(256);
-        
+
         Self {
-            transactions_by_slot: cfg
-                .enable_latency_monitor
-                .then(|| Arc::new(DashMap::new())),
+            transactions_by_slot: cfg.enable_latency_monitor.then(|| Arc::new(DashMap::new())),
             shred_buffer: Arc::new(Mutex::new(HashMap::new())),
             completed: Arc::new(DashMap::new()),
             suppressed: Arc::new(DashMap::new()),
@@ -559,20 +565,25 @@ impl ShredsUdpState {
     }
 
     /// Performs cleanup of expired entries across all internal caches.
-    pub async fn cleanup(&self, slot_window_root: Option<u64>) -> (usize, usize, usize, usize, usize, bool) {
+    pub async fn cleanup(
+        &self,
+        slot_window_root: Option<u64>,
+    ) -> (usize, usize, usize, usize, usize, bool) {
         let completed_ttl = self.completed_ttl();
         let suppressed_ttl = self.suppressed_ttl();
 
         let completed_removed = {
             let before = self.completed.len();
-            self.completed.retain(|_, until| until.elapsed() < completed_ttl);
+            self.completed
+                .retain(|_, until| until.elapsed() < completed_ttl);
             before - self.completed.len()
         };
         tokio::task::yield_now().await;
 
         let suppressed_removed = {
             let before = self.suppressed.len();
-            self.suppressed.retain(|_, until| until.elapsed() < suppressed_ttl);
+            self.suppressed
+                .retain(|_, until| until.elapsed() < suppressed_ttl);
             before - self.suppressed.len()
         };
         tokio::task::yield_now().await;
@@ -587,7 +598,7 @@ impl ShredsUdpState {
         let shred_buffer_removed = {
             let mut buf = self.shred_buffer.lock().await;
             let before = buf.len();
-            
+
             if let Some(root) = slot_window_root {
                 buf.retain(|key, _| key.slot >= root);
             } else {
@@ -607,7 +618,7 @@ impl ShredsUdpState {
 
         let slots_removed = if let Some(txs) = &self.transactions_by_slot {
             let before = txs.len();
-            
+
             if let Some(root) = slot_window_root {
                 txs.retain(|slot, _| *slot >= root);
             } else {
@@ -615,7 +626,7 @@ impl ShredsUdpState {
                 if txs.len() > MAX_SLOT_ENTRIES {
                     let mut slots: Vec<u64> = txs.iter().map(|entry| *entry.key()).collect();
                     slots.sort();
-                    let to_remove = txs.len() - (MAX_SLOT_ENTRIES * 80 / 100);  // Keep 80%
+                    let to_remove = txs.len() - (MAX_SLOT_ENTRIES * 80 / 100); // Keep 80%
                     for slot in slots.iter().take(to_remove) {
                         txs.remove(slot);
                     }
@@ -634,7 +645,14 @@ impl ShredsUdpState {
             false
         };
 
-        (shred_buffer_removed, completed_removed, suppressed_removed, warnings_removed, slots_removed, block_time_cleaned)
+        (
+            shred_buffer_removed,
+            completed_removed,
+            suppressed_removed,
+            warnings_removed,
+            slots_removed,
+            block_time_cleaned,
+        )
     }
 }
 
@@ -668,14 +686,9 @@ pub async fn run_shreds_udp(cfg: ShredsUdpConfig) -> crate::Result<()> {
         let state = state.clone();
         tokio::spawn(async move {
             loop {
-                if let Err(e) = handle_shred_watcher(
-                    &mut receiver,
-                    &state,
-                    &cfg,
-                    policy,
-                    watch_cfg.clone(),
-                )
-                .await
+                if let Err(e) =
+                    handle_shred_watcher(&mut receiver, &state, &cfg, policy, watch_cfg.clone())
+                        .await
                 {
                     error!("UDP handling error: {:?}", e);
                 }
@@ -683,9 +696,8 @@ pub async fn run_shreds_udp(cfg: ShredsUdpConfig) -> crate::Result<()> {
         })
     };
 
-    let map_join_err = |e: tokio::task::JoinError| {
-        SolanaStreamError::Connection(format!("task panicked: {e}"))
-    };
+    let map_join_err =
+        |e: tokio::task::JoinError| SolanaStreamError::Connection(format!("task panicked: {e}"));
     if let Some(latency_handle) = latency_handle {
         tokio::try_join!(latency_handle, receive_handle).map_err(map_join_err)?;
     } else {
@@ -851,11 +863,11 @@ impl BlockTimeCache {
 
         {
             let mut fetching = self.fetching.lock().await;
-            
-            if let Some(timestamp) = fetching.get(&slot) {
-                if timestamp.elapsed() < FETCH_TIMEOUT {
-                    return None;
-                }
+
+            if let Some(timestamp) = fetching.get(&slot)
+                && timestamp.elapsed() < FETCH_TIMEOUT
+            {
+                return None;
             }
             fetching.insert(slot, Instant::now());
         }
@@ -878,7 +890,7 @@ impl BlockTimeCache {
             let mut cache = self.cache.lock().await;
             if let Some(time) = block_time {
                 cache.insert(slot, time);
-                
+
                 while cache.len() > MAX_CACHE_SIZE {
                     if let Some((&oldest_slot, _)) = cache.iter().next() {
                         cache.remove(&oldest_slot);
@@ -1070,7 +1082,8 @@ fn apply_env_overrides(mut cfg: ShredsUdpConfig) -> ShredsUdpConfig {
         }
     };
     let strict_fec = env_bool_opt("SHREDS_UDP_STRICT_FEC").unwrap_or(cfg.strict_fec);
-    let strict_num_data = env_parse_u16("SHREDS_UDP_STRICT_NUM_DATA").unwrap_or(cfg.strict_num_data);
+    let strict_num_data =
+        env_parse_u16("SHREDS_UDP_STRICT_NUM_DATA").unwrap_or(cfg.strict_num_data);
     let strict_num_coding =
         env_parse_u16("SHREDS_UDP_STRICT_NUM_CODING").unwrap_or(cfg.strict_num_coding);
     let slot_window_root = env_parse_u64("SHREDS_UDP_ROOT_SLOT");
@@ -1172,10 +1185,10 @@ pub async fn cleanup_task(
 ) {
     loop {
         tokio::time::sleep(cleanup_interval).await;
-        
-        let (shred_buf, completed, suppressed, warnings, slots, block_time) = 
+
+        let (shred_buf, completed, suppressed, warnings, slots, block_time) =
             state.cleanup(slot_window_root).await;
-        
+
         if shred_buf > 0 || completed > 0 || suppressed > 0 || warnings > 0 || slots > 0 {
             debug!(
                 "Cleanup: shred_buffer {} | completed {} | suppressed {} | warnings {} | slots {} | block_time_cache {}",
@@ -1267,6 +1280,7 @@ pub async fn handle_shred_watcher(
 ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let datagram = receiver.recv_raw().await?;
     let payload_len = datagram.payload.len();
+    let from = datagram.from;
     if cfg.log_raw {
         let recv_ts = Utc::now();
         let preview: String = datagram
@@ -1280,31 +1294,23 @@ pub async fn handle_shred_watcher(
         info!(
             "recv {} bytes from {} at {} | preview: {}{}",
             payload_len,
-            datagram.from,
+            from,
             recv_ts.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             preview,
             if payload_len > 48 { " ..." } else { "" }
         );
     }
 
-    if let Some(shred_info) = decode_udp_datagram(&datagram, state, cfg).await {
-        match insert_shred(
-            shred_info,
-            &datagram,
-            state,
-            cfg,
-            &policy,
-        )
-        .await
-        {
+    if let Some(shred_info) = decode_udp_datagram(datagram, state, cfg).await {
+        match insert_shred(shred_info, from, state, cfg, &policy).await {
             ShredInsertOutcome::Ready(ready) => {
-                if cfg.log_deshred_attempts {
-                    if let Some(st) = &ready.status {
-                        info!(
-                            "deshred attempt {}",
-                            format_status(ready.key.slot, ready.key.version, ready.key.fec_set, st)
-                        );
-                    }
+                if cfg.log_deshred_attempts
+                    && let Some(st) = &ready.status
+                {
+                    info!(
+                        "deshred attempt {}",
+                        format_status(ready.key.slot, ready.key.version, ready.key.fec_set, st)
+                    );
                 }
                 process_ready_batch(ready, state, cfg, watch_cfg.clone()).await;
             }
@@ -1344,18 +1350,18 @@ pub async fn handle_shred_watcher(
 /// Insert a decoded shred into the in-memory FEC buffer and report readiness.
 pub async fn insert_shred(
     decoded: DecodedShred,
-    datagram: &UdpDatagram,
+    from: std::net::SocketAddr,
     state: &ShredsUdpState,
     cfg: &ShredsUdpConfig,
     policy: &DeshredPolicy,
 ) -> ShredInsertOutcome {
     let slot = decoded.shred.slot();
     let old_slot = state.latest_slot.fetch_max(slot, Ordering::Relaxed);
-    
+
     if slot > old_slot {
         let _ = state.slot_updates.send(slot);
     }
-    
+
     let version = decoded.shred.version();
     let fec_set = decoded.shred.fec_set_index();
     let key = FecKey {
@@ -1365,30 +1371,30 @@ pub async fn insert_shred(
     };
     let metrics = state.metrics();
 
-    if let Some(timestamp) = state.completed.get(&key) {
-        if timestamp.elapsed() < state.completed_ttl() {
-            return ShredInsertOutcome::Skipped;
-        }
+    if let Some(timestamp) = state.completed.get(&key)
+        && timestamp.elapsed() < state.completed_ttl()
+    {
+        return ShredInsertOutcome::Skipped;
     }
-    if let Some(timestamp) = state.suppressed.get(&key) {
-        if timestamp.elapsed() < state.suppressed_ttl() {
-            return ShredInsertOutcome::Skipped;
-        }
+    if let Some(timestamp) = state.suppressed.get(&key)
+        && timestamp.elapsed() < state.suppressed_ttl()
+    {
+        return ShredInsertOutcome::Skipped;
     }
 
     match &decoded.shred {
         Shred::ShredData(_) => {
-            process_data_shred(decoded, datagram, state, cfg, policy, key, metrics).await
+            process_data_shred(decoded, from, state, cfg, policy, key, metrics).await
         }
         Shred::ShredCode(_) => {
-            process_code_shred(decoded, datagram, state, cfg, policy, key, metrics).await
+            process_code_shred(decoded, from, state, cfg, policy, key, metrics).await
         }
     }
 }
 
 async fn process_data_shred(
     decoded: DecodedShred,
-    datagram: &UdpDatagram,
+    from: std::net::SocketAddr,
     state: &ShredsUdpState,
     cfg: &ShredsUdpConfig,
     policy: &DeshredPolicy,
@@ -1410,7 +1416,7 @@ async fn process_data_shred(
             key.fec_set,
             last,
             complete,
-            datagram.from,
+            from,
             decoded.received_len,
             decoded.canonical_payload_len(),
         );
@@ -1425,33 +1431,22 @@ async fn process_data_shred(
         }
 
         entry.insert_data_shred(decoded.shred, metrics);
-        let ready = entry.ready_to_deshred(policy);
-        let status = match &ready {
-            ReadyToDeshred::Ready(_) | ReadyToDeshred::Gated(_) => {
-                Some(entry.status(key.fec_set))
-            }
-            ReadyToDeshred::NotReady => None,
-        };
-        (ready, status)
+        entry.ready_to_deshred(policy, key.fec_set)
     };
 
     match ready {
-        ReadyToDeshred::Ready(shreds) => {
-            ShredInsertOutcome::Ready(ShredReadyBatch {
-                key,
-                shreds,
-                status,
-                source: ShredSource::Data,
-            })
-        }
-        ReadyToDeshred::Gated(reason) => {
-            ShredInsertOutcome::Deferred {
-                key,
-                source: ShredSource::Data,
-                reason,
-                status,
-            }
-        }
+        ReadyToDeshred::Ready(shreds) => ShredInsertOutcome::Ready(ShredReadyBatch {
+            key,
+            shreds,
+            status,
+            source: ShredSource::Data,
+        }),
+        ReadyToDeshred::Gated(reason) => ShredInsertOutcome::Deferred {
+            key,
+            source: ShredSource::Data,
+            reason,
+            status,
+        },
         ReadyToDeshred::NotReady => ShredInsertOutcome::Buffered {
             key,
             source: ShredSource::Data,
@@ -1461,7 +1456,7 @@ async fn process_data_shred(
 
 async fn process_code_shred(
     decoded: DecodedShred,
-    datagram: &UdpDatagram,
+    from: std::net::SocketAddr,
     state: &ShredsUdpState,
     cfg: &ShredsUdpConfig,
     policy: &DeshredPolicy,
@@ -1471,7 +1466,7 @@ async fn process_code_shred(
     let index = decoded.shred.index();
     let received_len = decoded.received_len;
     let canonical_len = decoded.canonical_payload_len();
-    
+
     let (ready, status) = {
         let mut buf = state.shred_buffer.lock().await;
         let entry = buf.entry(key).or_insert_with(ShredBatch::new);
@@ -1481,33 +1476,22 @@ async fn process_code_shred(
         }
 
         entry.insert_code_shred(decoded.shred, metrics);
-        let ready = entry.ready_to_deshred(policy);
-        let status = match &ready {
-            ReadyToDeshred::Ready(_) | ReadyToDeshred::Gated(_) => {
-                Some(entry.status(key.fec_set))
-            }
-            ReadyToDeshred::NotReady => None,
-        };
-        (ready, status)
+        entry.ready_to_deshred(policy, key.fec_set)
     };
 
     let outcome = match ready {
-        ReadyToDeshred::Ready(shreds) => {
-            ShredInsertOutcome::Ready(ShredReadyBatch {
-                key,
-                shreds,
-                status,
-                source: ShredSource::Coding,
-            })
-        }
-        ReadyToDeshred::Gated(reason) => {
-            ShredInsertOutcome::Deferred {
-                key,
-                source: ShredSource::Coding,
-                reason,
-                status,
-            }
-        }
+        ReadyToDeshred::Ready(shreds) => ShredInsertOutcome::Ready(ShredReadyBatch {
+            key,
+            shreds,
+            status,
+            source: ShredSource::Coding,
+        }),
+        ReadyToDeshred::Gated(reason) => ShredInsertOutcome::Deferred {
+            key,
+            source: ShredSource::Coding,
+            reason,
+            status,
+        },
         ReadyToDeshred::NotReady => ShredInsertOutcome::Buffered {
             key,
             source: ShredSource::Coding,
@@ -1517,13 +1501,7 @@ async fn process_code_shred(
     if cfg.log_shreds {
         info!(
             "Shred code: slot {} | idx {} | ver {} | fec_set {} | from {} | bytes {} | canonical {}",
-            key.slot,
-            index,
-            key.version,
-            key.fec_set,
-            datagram.from,
-            received_len,
-            canonical_len,
+            key.slot, index, key.version, key.fec_set, from, received_len, canonical_len,
         );
     }
 
@@ -1555,22 +1533,14 @@ async fn process_ready_batch(
                 txs.len()
             );
 
-            log_watch_events(
-                key.slot,
-                &txs,
-                watch_cfg.as_ref(),
-                cfg.log_watch_hits,
-            );
+            log_watch_events(key.slot, &txs, watch_cfg.as_ref(), cfg.log_watch_hits);
 
             if cfg.log_entries {
-                let sigs: Vec<String> = first_signatures(
-                    txs.iter().copied(),
-                    usize::MAX,
-                    watch_cfg.skip_vote_txs,
-                )
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect();
+                let sigs: Vec<String> =
+                    first_signatures(txs.iter().copied(), usize::MAX, watch_cfg.skip_vote_txs)
+                        .into_iter()
+                        .map(|s| s.to_string())
+                        .collect();
                 info!(
                     "Entries preview: slot {} | fec_set {} | sigs_first_non_vote {:?}",
                     key.slot, key.fec_set, sigs
@@ -1623,12 +1593,13 @@ impl DecodedShred {
     }
 }
 
-fn decode_shred(payload: &[u8]) -> Option<DecodedShred> {
-    match Shred::new_from_serialized_shred(payload.to_vec()) {
+fn decode_shred(payload: Vec<u8>) -> Option<DecodedShred> {
+    let received_len = payload.len();
+    match Shred::new_from_serialized_shred(payload) {
         Ok(shred) => {
             let canonical_len = shred.payload().len();
             Some(DecodedShred {
-                received_len: payload.len(),
+                received_len,
                 canonical_len,
                 shred,
             })
@@ -1639,19 +1610,20 @@ fn decode_shred(payload: &[u8]) -> Option<DecodedShred> {
 
 /// Decode and prefilter a UDP datagram into a sanitized shred ready for FEC insertion.
 pub async fn decode_udp_datagram(
-    datagram: &UdpDatagram,
+    datagram: UdpDatagram,
     state: &ShredsUdpState,
     cfg: &ShredsUdpConfig,
 ) -> Option<DecodedShred> {
     let metrics = state.metrics();
-    let payload_len = datagram.payload.len();
+    let UdpDatagram { payload, from, .. } = datagram;
+    let payload_len = payload.len();
 
     match payload_len {
         MERKLE_DATA_SHRED_PAYLOAD_SIZE => {
             if metrics.inc_payload_len_merkle_data() == 0 {
                 info!(
                     "Observed merkle data shred payload: len {} | from {} (Agave merkle sizing)",
-                    payload_len, datagram.from
+                    payload_len, from
                 );
             }
         }
@@ -1663,11 +1635,11 @@ pub async fn decode_udp_datagram(
         }
         _ => {
             let n = metrics.inc_payload_len_other();
-            if n % 50 == 0 {
+            if n.is_multiple_of(50) {
                 warn!(
                     "Unexpected udp payload: len {} | from {} (merkle {} | legacy {} | with_nonce {} | max {})",
                     payload_len,
-                    datagram.from,
+                    from,
                     MERKLE_DATA_SHRED_PAYLOAD_SIZE,
                     SHRED_PAYLOAD_SIZE,
                     PACKET_DATA_SIZE,
@@ -1681,7 +1653,7 @@ pub async fn decode_udp_datagram(
         metrics.inc_payload_size_mismatch();
         warn!(
             "Drop packet too large: len {} | max {} | from {}",
-            payload_len, MAX_UDP_PAYLOAD_SIZE, datagram.from
+            payload_len, MAX_UDP_PAYLOAD_SIZE, from
         );
         return None;
     }
@@ -1690,22 +1662,22 @@ pub async fn decode_udp_datagram(
         metrics.inc_payload_size_mismatch();
         warn!(
             "Drop packet too small: len {} (need at least {}) from {}",
-            payload_len, COMMON_HEADER_LEN, datagram.from
+            payload_len, COMMON_HEADER_LEN, from
         );
         return None;
     }
 
-    let decoded = match decode_shred(datagram.payload.as_slice()) {
+    let decoded = match decode_shred(payload) {
         Some(s) => s,
         None => {
             let n = metrics
                 .payload_size_mismatch
                 .fetch_add(1, Ordering::Relaxed);
-            if n % 100 == 0 {
+            if n.is_multiple_of(100) {
                 warn!(
                     "Drop packet: not a valid shred len {} from {} (merkle {} | legacy {} | with_nonce {} | max {})",
                     payload_len,
-                    datagram.from,
+                    from,
                     MERKLE_DATA_SHRED_PAYLOAD_SIZE,
                     SHRED_PAYLOAD_SIZE,
                     PACKET_DATA_SIZE,
@@ -1724,7 +1696,7 @@ pub async fn decode_udp_datagram(
     if decoded.received_len > decoded.canonical_payload_len() {
         let extra = decoded.received_len - decoded.canonical_payload_len();
         let n = metrics.inc_payload_trailing();
-        if n % 100 == 0 {
+        if n.is_multiple_of(100) {
             debug!(
                 "Shred received with trailing bytes: slot {} | ver {} | fec_set {} | recv_len {} | canonical {} | extra {} | from {}",
                 key.slot,
@@ -1733,7 +1705,7 @@ pub async fn decode_udp_datagram(
                 decoded.received_len,
                 decoded.canonical_payload_len(),
                 extra,
-                datagram.from
+                from
             );
         }
     }
@@ -1859,10 +1831,10 @@ async fn warn_once(state: &ShredsUdpState, key: FecKey, msg: &str, warn_once: bo
         );
         return;
     }
-    if let Some(timestamp) = state.warnings.get(&key) {
-        if timestamp.elapsed() < state.completed_ttl() {
-            return;
-        }
+    if let Some(timestamp) = state.warnings.get(&key)
+        && timestamp.elapsed() < state.completed_ttl()
+    {
+        return;
     }
     state.warnings.insert(key, Instant::now());
     warn!(
@@ -1957,35 +1929,49 @@ fn merge_mint_detail(current: &mut MintDetail, incoming: &MintDetail) {
             current.token_amount = incoming.token_amount;
         }
     } else {
-        if let Some(action) = incoming.action {
-            if incoming_priority > current_priority || current.action.is_none() {
-                current.action = Some(action);
-            }
+        if let Some(action) = incoming.action
+            && (incoming_priority > current_priority || current.action.is_none())
+        {
+            current.action = Some(action);
         }
-        if let Some(label) = incoming.label {
-            if current.label.is_none() || incoming_priority > current_priority {
-                current.label = Some(label);
-            }
+        if let Some(label) = incoming.label
+            && (current.label.is_none() || incoming_priority > current_priority)
+        {
+            current.label = Some(label);
         }
-        if let Some(sol) = incoming.sol_amount {
-            if current.sol_amount.is_none() || incoming_priority >= current_priority {
-                current.sol_amount = Some(sol);
-            }
+        if let Some(sol) = incoming.sol_amount
+            && (current.sol_amount.is_none() || incoming_priority >= current_priority)
+        {
+            current.sol_amount = Some(sol);
         }
-        if let Some(token) = incoming.token_amount {
-            if current.token_amount.is_none() || incoming_priority >= current_priority {
-                current.token_amount = Some(token);
-            }
+        if let Some(token) = incoming.token_amount
+            && (current.token_amount.is_none() || incoming_priority >= current_priority)
+        {
+            current.token_amount = Some(token);
         }
     }
 
-    if current.name.is_none() { current.name = incoming.name.clone(); }
-    if current.symbol.is_none() { current.symbol = incoming.symbol.clone(); }
-    if current.uri.is_none() { current.uri = incoming.uri.clone(); }
-    if current.creator.is_none() { current.creator = incoming.creator; }
-    if current.is_mayhem_mode.is_none() { current.is_mayhem_mode = incoming.is_mayhem_mode; }
-    if current.is_cashback_coin.is_none() { current.is_cashback_coin = incoming.is_cashback_coin; }
-    if current.token_program.is_none() { current.token_program = incoming.token_program; }
+    if current.name.is_none() {
+        current.name = incoming.name.clone();
+    }
+    if current.symbol.is_none() {
+        current.symbol = incoming.symbol.clone();
+    }
+    if current.uri.is_none() {
+        current.uri = incoming.uri.clone();
+    }
+    if current.creator.is_none() {
+        current.creator = incoming.creator;
+    }
+    if current.is_mayhem_mode.is_none() {
+        current.is_mayhem_mode = incoming.is_mayhem_mode;
+    }
+    if current.is_cashback_coin.is_none() {
+        current.is_cashback_coin = incoming.is_cashback_coin;
+    }
+    if current.token_program.is_none() {
+        current.token_program = incoming.token_program;
+    }
 }
 
 #[must_use]
@@ -2039,13 +2025,9 @@ pub fn collect_watch_events(
             if detail_map.is_empty() {
                 continue;
             }
-            // BTreeMap already provides unique keys in sorted order.
+
             let details: Vec<MintDetail> = detail_map.into_values().collect();
-            events.push(WatchEvent {
-                slot,
-                hit,
-                details,
-            });
+            events.push(WatchEvent { slot, hit, details });
         }
     }
     events
@@ -2069,10 +2051,10 @@ pub fn log_watch_events(
                 return 1;
             }
         }
-        if let Some(label) = detail.label {
-            if label.starts_with("pump:") {
-                return 2;
-            }
+        if let Some(label) = detail.label
+            && label.starts_with("pump:")
+        {
+            return 2;
         }
         10
     }
@@ -2095,7 +2077,8 @@ pub fn log_watch_events(
             continue;
         }
         if let Some(primary) = details.first() {
-            let is_create = primary.action == Some("create") || primary.label == Some("pump:create");
+            let is_create =
+                primary.action == Some("create") || primary.label == Some("pump:create");
             let base_kind = primary.action.or(primary.label).unwrap_or("unknown");
             let kind =
                 if is_create && (primary.sol_amount.is_some() || primary.token_amount.is_some()) {
@@ -2106,8 +2089,7 @@ pub fn log_watch_events(
                     base_kind
                 };
             let missing_amounts = primary.sol_amount.is_none() && primary.token_amount.is_none();
-            // Pump.fun instruction data includes SOL limits (max for buy/create, min for sell).
-            // Exact-SOL buys use the precise input amount.
+
             enum SolLimit {
                 Max,
                 Min,
@@ -2300,50 +2282,78 @@ impl ShredBatch {
         self.code_shreds.insert(shred.index(), shred);
     }
 
-    fn ready_to_deshred(&mut self, policy: &DeshredPolicy) -> ReadyToDeshred {
+    fn ready_to_deshred(
+        &mut self,
+        policy: &DeshredPolicy,
+        fec_set: u32,
+    ) -> (ReadyToDeshred, Option<BatchStatus>) {
         let data_len = self.data_shreds.len();
         let Some(required) = self.required_data else {
-            return ReadyToDeshred::NotReady;
+            return (ReadyToDeshred::NotReady, None);
         };
         if data_len < required || data_len <= self.last_attempted_count {
-            return ReadyToDeshred::NotReady;
+            return (ReadyToDeshred::NotReady, None);
         }
         if !self.data_complete_seen {
-            return ReadyToDeshred::Gated("waiting for data-complete shred".to_string());
+            let status = self.status(fec_set);
+            return (
+                ReadyToDeshred::Gated("waiting for data-complete shred".to_string()),
+                Some(status),
+            );
         }
 
         if policy.require_code_match {
             if self.code_shreds.is_empty() {
-                return ReadyToDeshred::Gated("waiting for coding shred".to_string());
+                let status = self.status(fec_set);
+                return (
+                    ReadyToDeshred::Gated("waiting for coding shred".to_string()),
+                    Some(status),
+                );
             }
             let summary = summarize_coding_headers(&self.code_shreds);
             if summary.parsed == 0 {
-                return ReadyToDeshred::Gated("no parseable coding headers yet".to_string());
+                let status = self.status(fec_set);
+                return (
+                    ReadyToDeshred::Gated("no parseable coding headers yet".to_string()),
+                    Some(status),
+                );
             }
             if summary.consistent_first_index().is_none() {
-                return ReadyToDeshred::Gated(
-                    "coding headers disagree on first_coding_index".to_string(),
+                let status = self.status(fec_set);
+                return (
+                    ReadyToDeshred::Gated(
+                        "coding headers disagree on first_coding_index".to_string(),
+                    ),
+                    Some(status),
                 );
             }
             let Some(code_required) = summary.consistent_num_data() else {
-                return ReadyToDeshred::Gated(
-                    "coding headers disagree on num_data_shreds".to_string(),
+                let status = self.status(fec_set);
+                return (
+                    ReadyToDeshred::Gated("coding headers disagree on num_data_shreds".to_string()),
+                    Some(status),
                 );
             };
             let data_required = self.required_data_from_data.unwrap_or(required);
             if code_required != data_required {
-                return ReadyToDeshred::Gated(format!(
-                    "coding num_data_shreds {} mismatches data {}",
-                    code_required, data_required
-                ));
+                let status = self.status(fec_set);
+                return (
+                    ReadyToDeshred::Gated(format!(
+                        "coding num_data_shreds {} mismatches data {}",
+                        code_required, data_required
+                    )),
+                    Some(status),
+                );
             }
         }
 
+        let status = self.status(fec_set);
         self.last_attempted_count = data_len;
-        let mut shreds = Vec::with_capacity(self.data_shreds.len());
-        shreds.extend(self.data_shreds.values().cloned());
+        let mut shreds: Vec<_> = std::mem::take(&mut self.data_shreds)
+            .into_values()
+            .collect();
         shreds.sort_unstable_by_key(|s| s.index());
-        ReadyToDeshred::Ready(shreds)
+        (ReadyToDeshred::Ready(shreds), Some(status))
     }
 
     fn status(&self, fec_set: u32) -> BatchStatus {
