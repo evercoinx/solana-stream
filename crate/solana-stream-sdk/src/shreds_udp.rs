@@ -2747,7 +2747,11 @@ strict_num_data = 16
     #[test]
     fn state_mark_completed_round_trip() {
         let state = default_state();
-        let key = FecKey { slot: 1, version: 0, fec_set: 0 };
+        let key = FecKey {
+            slot: 1,
+            version: 0,
+            fec_set: 0,
+        };
         state.mark_completed(key);
         assert!(state.completed.contains_key(&key));
     }
@@ -2755,7 +2759,11 @@ strict_num_data = 16
     #[test]
     fn state_mark_suppressed_round_trip() {
         let state = default_state();
-        let key = FecKey { slot: 2, version: 0, fec_set: 0 };
+        let key = FecKey {
+            slot: 2,
+            version: 0,
+            fec_set: 0,
+        };
         state.mark_suppressed(key);
         assert!(state.suppressed.contains_key(&key));
     }
@@ -2765,7 +2773,9 @@ strict_num_data = 16
         let state = default_state();
         let mut rx = state.subscribe_slot_updates();
 
-        let old = state.latest_slot.fetch_max(100, std::sync::atomic::Ordering::Relaxed);
+        let old = state
+            .latest_slot
+            .fetch_max(100, std::sync::atomic::Ordering::Relaxed);
         if 100 > old {
             let _ = state.slot_updates.send(100);
         }
@@ -2803,7 +2813,10 @@ strict_num_data = 16
 
         let watch_cfg = ProgramWatchConfig::new(vec![prog], vec![])
             .with_mint_finder(Arc::new(FixedMintFinder {
-                mints: vec![MintInfo { mint, label: Some("test") }],
+                mints: vec![MintInfo {
+                    mint,
+                    label: Some("test"),
+                }],
             }))
             .with_detailers(vec![Arc::new(NoopDetailer)]);
 
@@ -2868,7 +2881,10 @@ strict_num_data = 16
                 _tx: &solana_sdk::transaction::VersionedTransaction,
                 _cfg: &ProgramWatchConfig,
             ) -> Vec<MintInfo> {
-                vec![MintInfo { mint: self.mint, label: Some("test") }]
+                vec![MintInfo {
+                    mint: self.mint,
+                    label: Some("test"),
+                }]
             }
         }
 

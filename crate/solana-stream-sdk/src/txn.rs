@@ -575,8 +575,8 @@ pub fn default_detailers_from_programs(
 pub(crate) mod test_helpers {
     use solana_sdk::{
         hash::Hash,
-        message::{Message, MessageHeader, VersionedMessage},
         message::compiled_instruction::CompiledInstruction,
+        message::{Message, MessageHeader, VersionedMessage},
         pubkey::Pubkey,
         signature::Signature,
         transaction::VersionedTransaction,
@@ -649,10 +649,7 @@ pub(crate) mod test_helpers {
 mod tests {
     use std::sync::Arc;
 
-    use solana_sdk::{
-        message::compiled_instruction::CompiledInstruction,
-        pubkey::Pubkey,
-    };
+    use solana_sdk::{message::compiled_instruction::CompiledInstruction, pubkey::Pubkey};
     use solana_vote_program::id as vote_program_id;
 
     use super::*;
@@ -754,7 +751,11 @@ mod tests {
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let prog = Pubkey::new_from_array([1u8; 32]);
         let keys = vec![fee_payer, prog];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let tx = make_tx(keys, vec![ix]);
         assert!(detect_program_hit(&tx, &cfg).is_none());
     }
@@ -765,7 +766,11 @@ mod tests {
         let cfg = watch_cfg_with(vec![prog], vec![], Arc::new(NoopMintFinder));
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let keys = vec![fee_payer, prog];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let tx = make_tx(keys, vec![ix]);
         let hit = detect_program_hit(&tx, &cfg).unwrap();
         assert!(hit.program_hit);
@@ -779,7 +784,11 @@ mod tests {
         let cfg = watch_cfg_with(vec![other_prog], vec![authority], Arc::new(NoopMintFinder));
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let keys = vec![fee_payer, other_prog, authority];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let tx = make_tx(keys, vec![ix]);
         let hit = detect_program_hit(&tx, &cfg).unwrap();
         assert!(hit.authority_hit);
@@ -793,7 +802,11 @@ mod tests {
         let cfg = watch_cfg_with(vec![prog], vec![authority], Arc::new(NoopMintFinder));
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let keys = vec![fee_payer, prog, authority];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let tx = make_tx(keys, vec![ix]);
         let hit = detect_program_hit(&tx, &cfg).unwrap();
         assert!(hit.program_hit);
@@ -809,7 +822,11 @@ mod tests {
         cfg.fee_payers = std::collections::HashSet::from([allowed_payer]);
 
         let keys = vec![wrong_payer, prog];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let tx = make_tx(keys, vec![ix]);
         assert!(detect_program_hit(&tx, &cfg).is_none());
     }
@@ -821,7 +838,11 @@ mod tests {
         cfg.skip_vote_txs = true;
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let keys = vec![fee_payer, vote_prog];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let tx = make_tx(keys, vec![ix]);
         assert!(detect_program_hit(&tx, &cfg).is_none());
     }
@@ -833,7 +854,11 @@ mod tests {
         cfg.skip_vote_txs = false;
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let keys = vec![fee_payer, vote_prog];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let tx = make_tx(keys, vec![ix]);
         assert!(detect_program_hit(&tx, &cfg).is_some());
     }
@@ -843,12 +868,19 @@ mod tests {
         let prog = Pubkey::new_from_array([5u8; 32]);
         let mint = Pubkey::new_from_array([0xaau8; 32]);
         let fixed_finder = Arc::new(FixedMintFinder {
-            mints: vec![MintInfo { mint, label: Some("test") }],
+            mints: vec![MintInfo {
+                mint,
+                label: Some("test"),
+            }],
         });
         let cfg = watch_cfg_with(vec![prog], vec![], fixed_finder);
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let keys = vec![fee_payer, prog];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let tx = make_tx(keys, vec![ix]);
         let hit = detect_program_hit(&tx, &cfg).unwrap();
         assert_eq!(hit.mints.len(), 1);
@@ -860,7 +892,11 @@ mod tests {
         let prog = Pubkey::new_from_array([5u8; 32]);
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let keys = vec![fee_payer, prog];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let tx1 = make_tx(keys.clone(), vec![ix.clone()]);
         let tx2 = make_tx(keys, vec![ix]);
         let sigs = first_signatures([&tx1, &tx2], 1, false);
@@ -872,7 +908,11 @@ mod tests {
         let vote_prog = vote_program_id();
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let keys = vec![fee_payer, vote_prog];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let vote_tx = make_tx(keys, vec![ix]);
         let sigs = first_signatures([&vote_tx], 10, true);
         assert!(sigs.is_empty());
@@ -883,7 +923,11 @@ mod tests {
         let vote_prog = vote_program_id();
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
         let keys = vec![fee_payer, vote_prog];
-        let ix = CompiledInstruction { program_id_index: 1, accounts: vec![], data: vec![] };
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![],
+            data: vec![],
+        };
         let vote_tx = make_tx(keys, vec![ix]);
         let sigs = first_signatures([&vote_tx], 10, false);
         assert_eq!(sigs.len(), 1);
@@ -1059,7 +1103,14 @@ mod tests {
     #[test]
     fn parse_creator_valid() {
         let creator = Pubkey::new_from_array([0xddu8; 32]);
-        let data = build_create_v2_data("TestToken", "TT", "https://example.com", &creator, true, false);
+        let data = build_create_v2_data(
+            "TestToken",
+            "TT",
+            "https://example.com",
+            &creator,
+            true,
+            false,
+        );
         let result = parse_create_v2_creator(&data);
         assert!(result.is_some());
         let (parsed_creator, is_mayhem, is_cashback) = result.unwrap();
@@ -1093,7 +1144,10 @@ mod tests {
         };
         let tx = make_tx(keys, vec![ix]);
         let cfg = cfg_noop();
-        let mints = vec![MintInfo { mint, label: Some("pump:create") }];
+        let mints = vec![MintInfo {
+            mint,
+            label: Some("pump:create"),
+        }];
         let details = pump_detailer().detail(&tx, &cfg, &mints);
         assert!(!details.is_empty());
         let d = details.iter().find(|d| d.mint == mint).unwrap();
@@ -1121,7 +1175,10 @@ mod tests {
         };
         let tx = make_tx(keys, vec![ix]);
         let cfg = cfg_noop();
-        let mints = vec![MintInfo { mint, label: Some("pump:buy") }];
+        let mints = vec![MintInfo {
+            mint,
+            label: Some("pump:buy"),
+        }];
         let details = pump_detailer().detail(&tx, &cfg, &mints);
         let d = details.iter().find(|d| d.mint == mint).unwrap();
         assert_eq!(d.action, Some("buy"));
@@ -1148,7 +1205,10 @@ mod tests {
         };
         let tx = make_tx(keys, vec![ix]);
         let cfg = cfg_noop();
-        let mints = vec![MintInfo { mint, label: Some("pump:buy_exact") }];
+        let mints = vec![MintInfo {
+            mint,
+            label: Some("pump:buy_exact"),
+        }];
         let details = pump_detailer().detail(&tx, &cfg, &mints);
         let d = details.iter().find(|d| d.mint == mint).unwrap();
         assert_eq!(d.action, Some("buy"));
@@ -1164,7 +1224,10 @@ mod tests {
         let tx = make_tx(keys, vec![]);
         let cfg = cfg_noop();
         let mint = Pubkey::new_from_array([0xffu8; 32]);
-        let mints = vec![MintInfo { mint, label: Some("pump:buy") }];
+        let mints = vec![MintInfo {
+            mint,
+            label: Some("pump:buy"),
+        }];
         let details = pump_detailer().detail(&tx, &cfg, &mints);
         let d = details.iter().find(|d| d.mint == mint).unwrap();
         assert_eq!(d.action, Some("buy"));
@@ -1176,12 +1239,21 @@ mod tests {
         let mint_b = Pubkey::new_from_array([0xbbu8; 32]);
         let finder_a = Arc::new(FixedMintFinder {
             mints: vec![
-                MintInfo { mint: mint_a, label: Some("a") },
-                MintInfo { mint: mint_b, label: None },
+                MintInfo {
+                    mint: mint_a,
+                    label: Some("a"),
+                },
+                MintInfo {
+                    mint: mint_b,
+                    label: None,
+                },
             ],
         });
         let finder_b = Arc::new(FixedMintFinder {
-            mints: vec![MintInfo { mint: mint_b, label: Some("b") }],
+            mints: vec![MintInfo {
+                mint: mint_b,
+                label: Some("b"),
+            }],
         });
         let composite = CompositeMintFinder::new(vec![finder_a, finder_b]);
         let fee_payer = Pubkey::new_from_array([0u8; 32]);
