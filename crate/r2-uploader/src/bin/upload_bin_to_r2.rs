@@ -47,7 +47,7 @@ fn get_content_type(file_path: &Path) -> &'static str {
         Some("zip") => "application/zip",
         Some("bz2") => "application/x-bzip2",
         Some("xz") => "application/x-xz",
-        _ => "application/x-elf", 
+        _ => "application/x-elf",
     }
 }
 
