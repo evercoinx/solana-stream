@@ -11,11 +11,17 @@
   <a href="https://www.npmjs.com/package/@validators-dao/solana-stream-sdk">
     <img alt="NPM Version" src="https://img.shields.io/npm/v/@validators-dao/solana-stream-sdk?color=268bd2&label=version&logo=npm">
   </a>
-  <a aria-label="License" href="https://github.com/ValidatorsDAO/solana-stream/blob/main/LICENSE.txt">
+  <a aria-label="License" href="https://github.com/evercoinx/solana-stream/blob/main/LICENSE.txt">
     <img alt="" src="https://badgen.net/badge/license/Apache/blue">
   </a>
-  <a aria-label="Code of Conduct" href="https://github.com/ValidatorsDAO/solana-stream/blob/main/CODE_OF_CONDUCT.md">
+  <a aria-label="Code of Conduct" href="https://github.com/evercoinx/solana-stream/blob/main/CODE_OF_CONDUCT.md">
     <img alt="" src="https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg">
+  </a>
+  <a href="https://github.com/evercoinx/solana-stream/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/evercoinx/solana-stream/actions/workflows/ci.yml/badge.svg">
+  </a>
+  <a href="https://github.com/evercoinx/solana-stream/actions/workflows/security.yml">
+    <img alt="Security" src="https://github.com/evercoinx/solana-stream/actions/workflows/security.yml/badge.svg">
   </a>
 </p>
 
@@ -37,7 +43,7 @@ This project provides libraries and tools for streaming real-time data from the 
 - Shreds gRPC (TypeScript/Rust): raw shreds over gRPC for high-throughput ingestion
 - UDP Shreds (Rust): lowest-latency signal for detection and trading workflows
 
-## What's New (TypeScript v1.1.0)
+## What's New (TypeScript v1.8.0)
 
 - Refreshed starter layout and docs to highlight trading hooks
 - Yellowstone Geyser gRPC connection upgraded to an NAPI-RS-powered client for better backpressure
@@ -80,7 +86,7 @@ Note: the shared Shreds gRPC endpoint runs over TCP, so it’s slower than UDP S
 ### Try it with Solana Stream SDK
 
 - Sample code (`shreds-udp-rs`, Rust): pump.fun is just a common example—swap in your own target.  
-  https://github.com/ValidatorsDAO/solana-stream/tree/main/temp-release/shreds-udp-rs
+  https://github.com/evercoinx/solana-stream/tree/main/temp-release/shreds-udp-rs
 - Quick start requires `settings.jsonc` plus env (e.g., `SOLANA_RPC_ENDPOINT`); see the sample README.
 - Dedicated Shreds users: point your Shreds sender to the sample’s `ip:port` to see detections.
 - Not on UDP yet? Run it locally or on your own server to explore logs and customize hooks.
@@ -94,7 +100,7 @@ This example comes from the SDK sample; clone and run it to see hits, or swap in
 ### Resources
 
 - All code and README docs are in the Solana Stream SDK repo:  
-  https://github.com/ValidatorsDAO/solana-stream
+  https://github.com/evercoinx/solana-stream
 
 ## Package Structure
 
@@ -127,7 +133,7 @@ This example comes from the SDK sample; clone and run it to see hits, or swap in
 For the entire workspace:
 
 ```bash
-git clone https://github.com/ValidatorsDAO/solana-stream.git
+git clone https://github.com/evercoinx/solana-stream.git
 cd solana-stream
 pnpm install
 ```
@@ -175,7 +181,7 @@ cargo run -p shreds-rs
 
 The sample code can be found at:
 
-[https://github.com/ValidatorsDAO/solana-stream/blob/main/client/shreds-rs/src/main.rs](https://github.com/ValidatorsDAO/solana-stream/blob/main/client/shreds-rs/src/main.rs)
+[https://github.com/evercoinx/solana-stream/blob/main/client/shreds-rs/src/main.rs](https://github.com/evercoinx/solana-stream/blob/main/client/shreds-rs/src/main.rs)
 
 A 1-day free trial for the Shreds endpoints is available by joining the Validators DAO Discord community. Please try it out: [https://discord.gg/C7ZQSrCkYR](https://discord.gg/C7ZQSrCkYR)
 
@@ -185,7 +191,7 @@ You can also use the published crate in your own projects:
 
 ```toml
 [dependencies]
-solana-stream-sdk = "1.2.0"
+solana-stream-sdk = "1.8.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 dotenvy = "0.15"
 solana-entry = "3.0.12"
@@ -340,7 +346,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 Filtering remains experimental on the **Shreds gRPC** path (`shreds-rs`, `shreds-ts`): requests should send empty filter maps because shreds-side filters are not usable yet. Geyser gRPC filters are fine. For workloads that need filtering, prefer the high-speed, customizable UDP shreds pipeline described above. Occasionally, data may not be fully available, and filters may not be applied correctly on the shreds gRPC path.
 
-If you encounter such cases, please report them by opening an issue at: https://github.com/ValidatorsDAO/solana-stream/issues
+If you encounter such cases, please report them by opening an issue at: https://github.com/evercoinx/solana-stream/issues
 
 Your feedback greatly assists our debugging efforts and overall improvement of this feature.
 
@@ -399,4 +405,4 @@ The package is available as open source under the terms of the
 
 Everyone interacting in the Validators DAO project’s codebases, issue trackers, chat rooms
 and mailing lists is expected to follow the
-[code of conduct](https://github.com/ValidatorsDAO/solana-stream/blob/main/CODE_OF_CONDUCT.md).
+[code of conduct](https://github.com/evercoinx/solana-stream/blob/main/CODE_OF_CONDUCT.md).
