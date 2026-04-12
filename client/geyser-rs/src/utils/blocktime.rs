@@ -1,3 +1,8 @@
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
 use bs58;
 use chrono::{DateTime, TimeZone, Utc};
 use dashmap::DashMap;
@@ -5,10 +10,6 @@ use futures::future::join_all;
 use log::info;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_stream_sdk::{GeyserSubscribeUpdate, GeyserUpdateOneof};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
@@ -67,10 +68,10 @@ impl BlockTimeCache {
             let mut cache = self.cache.lock().await;
             if let Some(time) = block_time {
                 cache.insert(slot, time);
-                if cache.len() > 20 {
-                    if let Some(oldest_slot) = cache.keys().next().cloned() {
-                        cache.remove(&oldest_slot);
-                    }
+                if cache.len() > 20
+                    && let Some(oldest_slot) = cache.keys().next().cloned()
+                {
+                    cache.remove(&oldest_slot);
                 }
             }
         }
@@ -86,16 +87,15 @@ pub fn prepare_log_message(msg: &GeyserSubscribeUpdate, transactions_by_slot: &T
     if let Some(GeyserUpdateOneof::Transaction(tx_info)) = &msg.update_oneof {
         let received_time = Utc::now();
         let slot = tx_info.slot;
-        if let Some(tx) = &tx_info.transaction {
-            if let Some(inner_tx) = &tx.transaction {
-                if let Some(sig) = inner_tx.signatures.first() {
-                    let sig_str = bs58::encode(sig).into_string();
-                    transactions_by_slot
-                        .entry(slot)
-                        .or_insert_with(Vec::new)
-                        .push((sig_str, received_time));
-                }
-            }
+        if let Some(tx) = &tx_info.transaction
+            && let Some(inner_tx) = &tx.transaction
+            && let Some(sig) = inner_tx.signatures.first()
+        {
+            let sig_str = bs58::encode(sig).into_string();
+            transactions_by_slot
+                .entry(slot)
+                .or_insert_with(Vec::new)
+                .push((sig_str, received_time));
         }
     }
 }
@@ -147,15 +147,15 @@ pub async fn latency_monitor_task(
                         latency_buffer.iter().sum::<i64>() as f64 / latency_buffer.len() as f64;
 
                     info!(
-                      "Slot: {}\nTx: {}\n⏰ BlockTime: {}\n📥 ReceivedAt: {}\n🚀 Adjusted Latency: {} ms\n📊 Average Latency (latest {}): {:.2} ms\n",
-                      slot,
-                      sig,
-                      block_time.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                      recv_time.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                      latency,
-                      latency_buffer.len(),
-                      avg_latency
-                  );
+                        "Slot: {}\nTx: {}\n⏰ BlockTime: {}\n📥 ReceivedAt: {}\n🚀 Adjusted Latency: {} ms\n📊 Average Latency (latest {}): {:.2} ms\n",
+                        slot,
+                        sig,
+                        block_time.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                        recv_time.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                        latency,
+                        latency_buffer.len(),
+                        avg_latency
+                    );
                 }
             }
         }

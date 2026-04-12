@@ -4,7 +4,7 @@ version = "2.4.0"
 description = "For decoding Solana shred entry data"
 authors = ["ELSOUL LABO B.V. <labo@elsoul.nl>"]
 homepage = "https://elsoul.nl/"
-edition = "2021"
+edition = "2024"
 
 [lib]
 crate-type = ["cdylib"]

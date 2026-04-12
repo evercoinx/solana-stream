@@ -1,6 +1,7 @@
-use crate::utils::blocktime::{prepare_log_message, TransactionsBySlot};
 use solana_stream_sdk::GeyserSubscribeUpdate;
 use tokio::sync::mpsc;
+
+use crate::utils::blocktime::{TransactionsBySlot, prepare_log_message};
 
 pub async fn process_updates(
     mut updates_rx: mpsc::Receiver<GeyserSubscribeUpdate>,

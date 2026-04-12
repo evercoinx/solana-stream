@@ -1,5 +1,6 @@
-use anyhow::Context;
 use std::env;
+
+use anyhow::Context;
 
 use crate::utils::fallback::{DEFAULT_CONFIG_PATH, DEFAULT_RPC_ENDPOINT};
 

@@ -1,6 +1,6 @@
-use std::str::FromStr;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
+    str::FromStr,
     sync::Arc,
 };
 
