@@ -6,6 +6,7 @@ authors = ["ELSOUL LABO B.V. <labo@elsoul.nl>"]
 homepage = "https://elsoul.nl/"
 description = "A CLI tool for uploading compiled binaries to Cloudflare R2 storage"
 license = "Apache-2.0"
+publish = false
 repository = "https://github.com/ValidatorsDAO/solana-stream"
 keywords = ["cloudflare", "r2", "upload", "cli", "binary"]
 categories = ["command-line-utilities", "web-programming"]

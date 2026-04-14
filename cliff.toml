@@ -1,0 +1,27 @@
+[changelog]
+header = "# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n"
+body   = """
+{% for group, commits in commits | group_by(attribute="group") %}\
+### {{ group | upper_first }}
+{% for commit in commits %}\
+- {{ commit.description | upper_first }} \
+([`{{ commit.id | truncate(length=7, end="") }}`]\
+(https://github.com/evercoinx/solana-stream/commit/{{ commit.id }}))
+{% endfor %}
+{% endfor %}\
+"""
+trim   = true
+footer = ""
+
+[git]
+conventional_commits  = true
+filter_unconventional = true
+commit_parsers = [
+  { message = "^feat",     group = "Features"    },
+  { message = "^fix",      group = "Bug Fixes"   },
+  { message = "^perf",     group = "Performance" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^chore",    skip  = true          },
+]
+filter_commits = true
+tag_pattern    = "v[0-9].*"
