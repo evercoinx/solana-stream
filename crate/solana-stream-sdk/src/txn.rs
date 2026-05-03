@@ -336,21 +336,45 @@ impl MintFinder for PumpfunAccountMintFinder {
     }
 }
 
-/// Parses `creator`, `is_mayhem_mode`, and `is_cashback_coin` from a pump.fun CreateV2 instruction.
-///
-/// Layout (after the 8-byte discriminator):
-/// `name(4+n) + symbol(4+n) + uri(4+n) + creator(32) + [is_mayhem_mode(1)] + is_cashback_coin(1)`
-fn parse_create_v2_creator(data: &[u8]) -> Option<(Pubkey, bool, bool)> {
-    let mut pos = 8usize; // skip discriminator
-    for _ in 0..3 {
-        // Skip name, symbol, uri
-        let len = u32::from_le_bytes(data.get(pos..pos + 4)?.try_into().ok()?) as usize;
-        pos = pos.checked_add(4 + len)?;
-    }
-    let creator = Pubkey::from(<[u8; 32]>::try_from(data.get(pos..pos + 32)?).ok()?);
-    let is_mayhem_mode = data.get(pos + 32).copied().unwrap_or(0) != 0;
-    let is_cashback_coin = data.get(pos + 33).copied().unwrap_or(0) != 0;
-    Some((creator, is_mayhem_mode, is_cashback_coin))
+struct CreateV2Metadata {
+    name: String,
+    symbol: String,
+    uri: String,
+    creator: Pubkey,
+    is_mayhem_mode: bool,
+    is_cashback_coin: bool,
+}
+
+/// Reads a Borsh-encoded string (u32 LE length prefix + UTF-8 bytes) from `data` at `*pos`,
+/// advancing `*pos` past the string on success. Invalid UTF-8 is replaced lossily.
+fn read_borsh_string(data: &[u8], pos: &mut usize) -> Option<String> {
+    let len_end = pos.checked_add(4)?;
+    let len_bytes: [u8; 4] = data.get(*pos..len_end)?.try_into().ok()?;
+    let len = u32::from_le_bytes(len_bytes) as usize;
+    let end = len_end.checked_add(len)?;
+    let bytes = data.get(len_end..end)?;
+    *pos = end;
+    Some(String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// Parses all metadata from a pump.fun CreateV2 instruction.
+fn parse_create_v2_metadata(data: &[u8]) -> Option<CreateV2Metadata> {
+    let mut pos = 8usize;
+    let name = read_borsh_string(data, &mut pos)?;
+    let symbol = read_borsh_string(data, &mut pos)?;
+    let uri = read_borsh_string(data, &mut pos)?;
+    let creator_end = pos.checked_add(32)?;
+    let creator = Pubkey::from(<[u8; 32]>::try_from(data.get(pos..creator_end)?).ok()?);
+    let is_mayhem_mode = data.get(creator_end).copied().unwrap_or(0) != 0;
+    let is_cashback_coin = data.get(creator_end + 1).copied().unwrap_or(0) != 0;
+    Some(CreateV2Metadata {
+        name,
+        symbol,
+        uri,
+        creator,
+        is_mayhem_mode,
+        is_cashback_coin,
+    })
 }
 
 /// Pump.fun detailer: adds action metadata based on label.
@@ -438,12 +462,19 @@ impl MintDetailer for PumpfunDetailer {
                 _ => (None, None),
             };
 
-            let (creator, is_mayhem_mode, is_cashback_coin) = if is_create_v2 {
-                parse_create_v2_creator(&ix.data).map_or((None, None, None), |(c, m, cb)| {
-                    (Some(c), Some(m), Some(cb))
-                })
-            } else {
-                (None, None, None)
+            let (name, symbol, uri, creator, is_mayhem_mode, is_cashback_coin) = match is_create_v2
+                .then(|| parse_create_v2_metadata(&ix.data))
+                .flatten()
+            {
+                Some(m) => (
+                    Some(m.name),
+                    Some(m.symbol),
+                    Some(m.uri),
+                    Some(m.creator),
+                    Some(m.is_mayhem_mode),
+                    Some(m.is_cashback_coin),
+                ),
+                None => (None, None, None, None, None, None),
             };
 
             let token_program = ix.accounts.iter().find_map(|&idx| {
@@ -487,6 +518,15 @@ impl MintDetailer for PumpfunDetailer {
                 entry.creator = creator;
                 entry.is_mayhem_mode = is_mayhem_mode;
                 entry.is_cashback_coin = is_cashback_coin;
+            }
+            if entry.name.is_none() {
+                entry.name = name;
+            }
+            if entry.symbol.is_none() {
+                entry.symbol = symbol;
+            }
+            if entry.uri.is_none() {
+                entry.uri = uri;
             }
             if token_program.is_some() && entry.token_program.is_none() {
                 entry.token_program = token_program;
@@ -1101,7 +1141,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_creator_valid() {
+    fn parse_metadata_valid() {
         let creator = Pubkey::new_from_array([0xddu8; 32]);
         let data = build_create_v2_data(
             "TestToken",
@@ -1111,18 +1151,96 @@ mod tests {
             true,
             false,
         );
-        let result = parse_create_v2_creator(&data);
+        let result = parse_create_v2_metadata(&data);
         assert!(result.is_some());
-        let (parsed_creator, is_mayhem, is_cashback) = result.unwrap();
-        assert_eq!(parsed_creator, creator);
-        assert!(is_mayhem);
-        assert!(!is_cashback);
+        let m = result.unwrap();
+        assert_eq!(m.name, "TestToken");
+        assert_eq!(m.symbol, "TT");
+        assert_eq!(m.uri, "https://example.com");
+        assert_eq!(m.creator, creator);
+        assert!(m.is_mayhem_mode);
+        assert!(!m.is_cashback_coin);
     }
 
     #[test]
-    fn parse_creator_truncated() {
+    fn parse_metadata_truncated() {
         let data = PUMPFUN_CREATE_V2_DISC.to_vec();
-        assert!(parse_create_v2_creator(&data).is_none());
+        assert!(parse_create_v2_metadata(&data).is_none());
+    }
+
+    #[test]
+    fn parse_metadata_invalid_utf8() {
+        let creator = Pubkey::new_from_array([0xeeu8; 32]);
+        let mut data = PUMPFUN_CREATE_V2_DISC.to_vec();
+        for s in ["ValidName", "", "https://example.com"] {
+            let bytes = s.as_bytes();
+            data.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+            data.extend_from_slice(bytes);
+        }
+
+        let name_len = "ValidName".len();
+        let symbol_start = 8 + 4 + name_len + 4;
+        let symbol_len_offset = 8 + 4 + name_len;
+        let symbol_bytes: Vec<u8> = vec![0xFF, 0xFE];
+        let mut data2 = data[..symbol_len_offset].to_vec();
+        data2.extend_from_slice(&(symbol_bytes.len() as u32).to_le_bytes());
+        data2.extend_from_slice(&symbol_bytes);
+        let uri_src_start = symbol_start;
+        data2.extend_from_slice(&data[uri_src_start..]);
+        data2.extend_from_slice(creator.as_ref());
+        data2.push(0);
+        data2.push(1);
+
+        let result = parse_create_v2_metadata(&data2);
+        assert!(
+            result.is_some(),
+            "should survive invalid UTF-8 via lossy decode"
+        );
+        let m = result.unwrap();
+        assert_eq!(m.name, "ValidName");
+        assert!(!m.symbol.is_empty(), "lossy symbol should not be empty");
+        assert_eq!(m.creator, creator);
+        assert!(!m.is_mayhem_mode);
+        assert!(m.is_cashback_coin);
+    }
+
+    #[test]
+    fn detailer_create_v2_extracts_metadata() {
+        let fee_payer = Pubkey::new_from_array([0u8; 32]);
+        let mint = Pubkey::new_from_array([0xaau8; 32]);
+        let pump = pumpfun_program();
+        let creator = Pubkey::new_from_array([0xddu8; 32]);
+        let keys = vec![fee_payer, pump, mint];
+        let data = build_create_v2_data(
+            "MyToken",
+            "MTK",
+            "https://my.token/meta",
+            &creator,
+            false,
+            true,
+        );
+        let ix = CompiledInstruction {
+            program_id_index: 1,
+            accounts: vec![2],
+            data,
+        };
+        let tx = make_tx(keys, vec![ix]);
+        let cfg = cfg_noop();
+        let mints = vec![MintInfo {
+            mint,
+            label: Some("pump:create"),
+        }];
+
+        let details = pump_detailer().detail(&tx, &cfg, &mints);
+        let d = details.iter().find(|d| d.mint == mint).unwrap();
+
+        assert_eq!(d.action, Some("create"));
+        assert_eq!(d.name.as_deref(), Some("MyToken"));
+        assert_eq!(d.symbol.as_deref(), Some("MTK"));
+        assert_eq!(d.uri.as_deref(), Some("https://my.token/meta"));
+        assert_eq!(d.creator, Some(creator));
+        assert_eq!(d.is_cashback_coin, Some(true));
+        assert_eq!(d.is_mayhem_mode, Some(false));
     }
 
     fn pump_detailer() -> PumpfunDetailer {
