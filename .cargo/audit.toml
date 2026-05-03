@@ -10,5 +10,9 @@ ignore = [
     "RUSTSEC-2025-0134", # rustls-pemfile v1: unmaintained; transitive via reqwest 0.11 → goauth → solana-storage-bigtable
     "RUSTSEC-2025-0141", # bincode v1: unmaintained; Solana wire format, no viable drop-in; Agave still pulls v1 transitively
     "RUSTSEC-2026-0009", # time v0.3: DoS via stack exhaustion; transitive via x509-parser → solana-tls-utils → Agave; fix requires Agave SDK upgrade
-    "RUSTSEC-2026-0097", # rand v0.7/v0.8: unsound with custom logger; our direct dep is v0.9 (unaffected); fix requires Agave SDK upgrade
+    "RUSTSEC-2026-0097", # rand: unsound with custom logger; 0.8.5→0.8.6 patched (bumped); 0.7.3 unfixable (transitive via ed25519-dalek v1 → Agave)
+    "RUSTSEC-2026-0098", # rustls-webpki: URI name-constraints ignored; 0.103.x patched (bumped to 0.103.13); 0.101.x unfixable (transitive via rustls 0.21 → solana-storage-bigtable → Agave)
+    "RUSTSEC-2026-0099", # rustls-webpki: wildcard name-constraint bypass; same reasoning as RUSTSEC-2026-0098
+    "RUSTSEC-2026-0104", # rustls-webpki: reachable panic in CRL parsing; same reasoning as RUSTSEC-2026-0098
+    "RUSTSEC-2025-0161", # libsecp256k1: unmaintained, no patched version; transitive via agave-syscalls → Agave
 ]
