@@ -488,15 +488,15 @@ impl MintDetailer for PumpfunDetailer {
                 token_program
             };
 
-            let entry = out.entry(*mint).or_insert(MintDetail {
+            let entry = out.entry(*mint).or_insert_with(|| MintDetail {
                 mint: *mint,
                 label,
                 action,
                 sol_amount,
                 token_amount,
-                name: None,
-                symbol: None,
-                uri: None,
+                name: name.clone(),
+                symbol: symbol.clone(),
+                uri: uri.clone(),
                 creator,
                 is_mayhem_mode,
                 is_cashback_coin,
